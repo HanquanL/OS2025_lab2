@@ -85,7 +85,11 @@ class EventQueue{
 };
 
 class Scheduler{
-
+    public:
+        virtual ~Scheduler() {}    // virtual destructor
+        virtual void add_process(Process* process) = 0;
+        virtual Process* get_next_process() = 0;
+        virtual bool unblock_preempt(Process* running, Process* unblocked){ return false; }
 };
 
 Process* get_processObj(string lineOfProcess);
