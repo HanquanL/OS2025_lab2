@@ -4,6 +4,7 @@
 #include <sstream>
 #include <string>
 #include <list>
+#include <queue>
 #include <algorithm>
 
 using namespace std;
@@ -90,6 +91,24 @@ class Scheduler{
         virtual void add_process(Process* process) = 0;
         virtual Process* get_next_process() = 0;
         virtual bool unblock_preempt(Process* running, Process* unblocked){ return false; }
+};
+
+class FCFS_Scheduler : public Scheduler{
+    private:
+        queue<Process*> runQueue;
+    public:
+        void add_process(Process* process) override {
+            runQueue.push(process);
+        }
+
+        Process* get_next_process() override {
+            if(runQueue.empty()){
+                return nullptr;
+            }
+            Process* nextProcess = runQueue.front();
+            runQueue.pop();
+            return nextProcess;
+        }
 };
 
 Process* get_processObj(string lineOfProcess);
