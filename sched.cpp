@@ -29,10 +29,19 @@ enum class ProcessStates{
     TERMINATED  
 };
 
+enum class Transition{
+    TRANS_TO_READY,
+    TRANS_TO_RUN,
+    TRANS_TO_BLOCK,
+    TRANS_TO_PREEMPT,
+    TRANS_TO_TERMINATE
+};
+
 class Event {
     public:
         int timeStamp;
         Process* process;
+        Transition transition;
         ProcessStates newState;
         ProcessStates oldState;
 };
@@ -75,12 +84,17 @@ class EventQueue{
         }
 };
 
+class Scheduler{
+
+};
+
 Process* get_processObj(string lineOfProcess);
 int get_randomNumber();
 int mydrndom(int burst);
 void simulationLoop();
 int globalProcessId = 0;
 EventQueue eventQueue;
+bool CALL_SCHEDULER = false;
 
 int main(int argc, char *argv[]) {
     
@@ -97,6 +111,7 @@ int main(int argc, char *argv[]) {
         newEvent->timeStamp = currentProcess->arrivalTime;
         newEvent->process = currentProcess;
         newEvent->newState = ProcessStates::CREATED;
+        newEvent->transition = Transition::TRANS_TO_READY;
         eventQueue.insertEvent(newEvent);
         // cout << currentProcess.arrivalTime << currentProcess.totalCpuTime << currentProcess.cpuBurst << currentProcess.ioBurst << endl; //for test purposes
     }
@@ -156,8 +171,29 @@ void simulationLoop(){
     while(currentEvent = eventQueue.getEvent()){
         Process* currentProcess = currentEvent->process;
         int currentTime = currentEvent->timeStamp;
+        Transition currentTransition = currentEvent->transition;
         ProcessStates currentState = currentEvent->newState;
         delete currentEvent;
 
+        switch(currentTransition){
+            case Transition::TRANS_TO_READY:
+                // must come from BLOCEKD or CREATED
+                // ADD TO RUN QUEUE, NO EVENT CREATED
+                break;
+            case Transition::TRANS_TO_PREEMPT:
+                // must come from RUNNING
+                // ADD TO RUN QUEUE, no event is generated
+                break;
+            case Transition::TRANS_TO_RUN:
+                // create event for either preemption or blocking
+                break;
+            case Transition::TRANS_TO_BLOCK:
+                // create event for when process becomes READY again
+                break;
+        }
+
+        if(CALL_SCHEDULER){
+            // waiting for more details
+        }
     }
 }
