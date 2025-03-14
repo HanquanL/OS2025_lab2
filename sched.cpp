@@ -11,6 +11,15 @@ using namespace std;
 
 vector<string> outputTable;
 ifstream randomNumbers;
+int globalProcessId = 0;
+bool CALL_SCHEDULER = false;
+/*global accounting counters*/
+int totalCpuBusyTime = 0;
+int totalIoBusyTime = 0;
+int simulationFinishTime = 0; // Updated as the simulation ends
+int ioActiveCount = 0;        // Number of processes currently doing I/O
+int ioBusyStart = 0;          // Timestamp when I/O activity started
+/*global accounting counters end*/
 
 class Process {
     public:
@@ -20,7 +29,9 @@ class Process {
         int cpuBurst;
         int ioBurst;
         int finishTime;
-        int state_ts;
+        int state_ts;    // the time when the process changed its state
+        int cpuWaitingTime;    // the time the process has been waiting in the ready queue
+        int ioTime;    // the time spent in I/O (blocked)
 
 };
 
@@ -126,10 +137,10 @@ Process* get_processObj(string lineOfProcess);
 int get_randomNumber();
 int mydrndom(int burst);
 void simulationLoop();
-int globalProcessId = 0;
+void printOutcome();
 EventQueue eventQueue;
-bool CALL_SCHEDULER = false;
 Process* CURRENT_RUNNING_PROCESS = nullptr;
+vector<Process*> outcomeProcesses;
 
 int main(int argc, char *argv[]) {
     
@@ -142,6 +153,7 @@ int main(int argc, char *argv[]) {
     getline(randomNumbers, stringTotalRandomNumbers);
     while(getline(readFile, lineOfProcess)){
         Process* currentProcess = get_processObj(lineOfProcess);
+        outcomeProcesses.push_back(currentProcess);
         Event* newEvent = new Event();
         newEvent->timeStamp = currentProcess->arrivalTime;
         newEvent->process = currentProcess;
@@ -151,6 +163,7 @@ int main(int argc, char *argv[]) {
         // cout << currentProcess.arrivalTime << currentProcess.totalCpuTime << currentProcess.cpuBurst << currentProcess.ioBurst << endl; //for test purposes
     }
     simulationLoop();
+    printOutcome();
     // cout << get_randomNumber() << endl; //for test purposes
     // cout << get_randomNumber() << endl; //for test purposes
     // cout << get_randomNumber() << endl; //for test purposes
@@ -178,6 +191,9 @@ Process* get_processObj(string lineOfProcess) {
     process->totalCpuTime = totalCpuTime;
     process->cpuBurst = cpuBurst;
     process->ioBurst = ioBurst;
+    process->state_ts = arrivalTime;
+    process->cpuWaitingTime = 0;
+    process->ioTime = 0;
 
     return process;
 }
@@ -208,19 +224,36 @@ void simulationLoop(){
     while(currentEvent = eventQueue.getEvent()){
         Process* currentProcess = currentEvent->process;
         int currentTime = currentEvent->timeStamp;
+        simulationFinishTime = currentTime;
         Transition currentTransition = currentEvent->transition;
-        int timeInPrevState = currentTime - currentProcess->state_ts;
+        // int timeInPrevState = currentTime - currentProcess->state_ts;
+        // currentProcess->state_ts = currentTime;
+        int prevStateTime = currentProcess->state_ts;
+        int timeInPrevState = currentTime - prevStateTime;
         /* For test */
         // cout << "Time: " << currentTime 
         //     << " Process ID: " << currentProcess->processId 
-        //     << " Transition: " << static_cast<int>(currentTransition) << endl;
+        //     << " Transition: " << (int)currentTransition << endl;
         /* For test */
-        delete currentEvent;
 
         switch(currentTransition){
             case Transition::TRANS_TO_READY:{
                 // must come from BLOCEKD or CREATED
                 // ADD TO RUN QUEUE, NO EVENT CREATED
+                //currentProcess->cpuWaitingTime += timeInPrevState;
+                // If timeInPrevState is > 0, we assume the process was blocked and has finished I/O.
+                if(timeInPrevState > 0) {
+                    // Process was in I/O, so update I/O busy time.
+                    // Decrement the count of processes in I/O.
+                    ioActiveCount--;
+                    // If no process is performing I/O now, record the I/O busy period.
+                    if(ioActiveCount == 0) {
+                        totalIoBusyTime += (currentTime - ioBusyStart);
+                    }
+                }else{
+                    currentProcess->cpuWaitingTime += timeInPrevState;
+                }
+                currentProcess->state_ts = currentTime; // Update the state timestamp
                 scheduler.add_process(currentProcess);
                 CALL_SCHEDULER = true;
                 break;
@@ -228,37 +261,104 @@ void simulationLoop(){
             case Transition::TRANS_TO_PREEMPT:{
                 // must come from RUNNING
                 // ADD TO RUN QUEUE, no event is generated
+                //currentProcess->cpuWaitingTime += timeInPrevState;
+                int timeSpentRunning = currentTime - prevStateTime; // use saved timestamp
+                totalCpuBusyTime += timeSpentRunning; // accumulate the CPU busy time
+                currentProcess->totalCpuTime -= timeSpentRunning; // Update remaining CPU time
+                currentProcess->state_ts = currentTime; // Update the state timestamp
                 scheduler.add_process(currentProcess);
                 CALL_SCHEDULER = true;
                 break;
             }
             case Transition::TRANS_TO_RUN:{
                 // create event for either preemption or blocking
+                //int waitingTime = currentTime - currentProcess->state_ts;
+                int waitingTime = currentTime - prevStateTime;
+                currentProcess->cpuWaitingTime += waitingTime;
+                currentProcess->state_ts = currentTime; // Update the state timestamp
                 int rdCpuBurst = mydrndom(currentProcess->cpuBurst);
+                int actualCpuBurst = 0;
+                // check if the cpu burst is exceeding the remaining cpu time
                 if(rdCpuBurst >= currentProcess -> totalCpuTime){
                     eventQueue.insertEvent(new Event(currentTime + currentProcess -> totalCpuTime, currentProcess,Transition::TRANS_TO_TERMINATE));
+                    currentProcess->totalCpuTime = 0; // Update remaining CPU time to 0
                 }else{
+                    actualCpuBurst = rdCpuBurst;    // Process will run for rdCpuBurst and then block (or be preempted).
                     eventQueue.insertEvent(new Event(currentTime + rdCpuBurst, currentProcess, Transition::TRANS_TO_BLOCK));
+                    currentProcess->totalCpuTime -= actualCpuBurst; // Update remaining CPU time
+                }
+                totalCpuBusyTime += actualCpuBurst;    // accumulate the CPU busy time
+                break;
+            }
+            case Transition::TRANS_TO_TERMINATE:{
+                // Process finishes execution.
+                currentProcess->finishTime = currentTime;
+                currentProcess->state_ts = currentTime;
+                // If this process was running, clear the running process pointer.
+                if (CURRENT_RUNNING_PROCESS == currentProcess) {
+                    CURRENT_RUNNING_PROCESS = nullptr;
                 }
                 break;
             }
             case Transition::TRANS_TO_BLOCK:{
                 // create event for when process becomes READY again
+                // When the first process enters I/O, mark the start of an I/O busy period.
+                if(ioActiveCount == 0) {
+                    ioBusyStart = currentTime;
+                }
+                ioActiveCount++; // Increment the count of processes doing I/O.
                 int rdIoBurst = mydrndom(currentProcess->ioBurst);
+                currentProcess->ioTime += rdIoBurst;
+                currentProcess->state_ts = currentTime;
                 eventQueue.insertEvent(new Event(currentTime + rdIoBurst, currentProcess, Transition::TRANS_TO_READY));
                 CALL_SCHEDULER = true;
                 break;
             }
         }
+        delete currentEvent; // Free the memory of the event
 
-        if(CALL_SCHEDULER && eventQueue.get_next_event_time() != currentTime){
+        // if(CALL_SCHEDULER && eventQueue.get_next_event_time() != currentTime){
+        //     CALL_SCHEDULER = false;
+        //     if(CURRENT_RUNNING_PROCESS == nullptr){
+        //         CURRENT_RUNNING_PROCESS = scheduler.get_next_process();
+        //         if(CURRENT_RUNNING_PROCESS != nullptr){
+        //             Event* runEvent = new Event(currentTime, CURRENT_RUNNING_PROCESS, Transition::TRANS_TO_RUN);
+        //         }
+        //     }
+        // }
+        if(CALL_SCHEDULER){
+            if(eventQueue.get_next_event_time() == currentTime){
+                continue;
+            }
             CALL_SCHEDULER = false;
             if(CURRENT_RUNNING_PROCESS == nullptr){
                 CURRENT_RUNNING_PROCESS = scheduler.get_next_process();
                 if(CURRENT_RUNNING_PROCESS != nullptr){
                     Event* runEvent = new Event(currentTime, CURRENT_RUNNING_PROCESS, Transition::TRANS_TO_RUN);
+                    eventQueue.insertEvent(runEvent);
                 }
             }
         }
     }
+}
+
+void printOutcome(){
+    double sumTurnaroundTime = 0;
+    double sumCpuWaitingTime = 0;
+    int processCount = outcomeProcesses.size();
+    for(Process* process : outcomeProcesses){
+        int turnaroundTime = process->finishTime - process->arrivalTime;
+        sumTurnaroundTime += turnaroundTime;
+        sumCpuWaitingTime += process->cpuWaitingTime;
+        printf("%04d: %4d %4d %4d %4d | %5d %5d %5d %5d\n",
+            process->processId, process->arrivalTime, process->totalCpuTime, process->cpuBurst, process->ioBurst,
+            process->finishTime, turnaroundTime, process->ioTime, process->cpuWaitingTime);
+    }
+    double avgTurnaroundTime = sumTurnaroundTime / processCount;
+    double avgCpuWaitingTime = sumCpuWaitingTime / processCount;
+    double cpuUtilization = 100.0 * (double) totalCpuBusyTime / simulationFinishTime;
+    double ioUtilization = 100.0 * (double) totalIoBusyTime / simulationFinishTime;
+    double throughput = 100.0 * (double) processCount / simulationFinishTime;
+    printf("SUM: %d %.2lf %.2lf %.2lf %.2lf %.3lf\n",
+        simulationFinishTime, cpuUtilization, ioUtilization, avgTurnaroundTime, avgCpuWaitingTime, throughput);
 }
