@@ -21,6 +21,14 @@ int ioActiveCount = 0;        // Number of processes currently doing I/O
 int ioBusyStart = 0;          // Timestamp when I/O activity started
 /*global accounting counters end*/
 
+enum class ProcessStates{
+    CREATED,
+    READY,
+    RUNNING,
+    BLOCK,
+    TERMINATED  
+};
+
 class Process {
     public:
         int processId;
@@ -32,15 +40,9 @@ class Process {
         int state_ts;    // the time when the process changed its state
         int cpuWaitingTime;    // the time the process has been waiting in the ready queue
         int ioTime;    // the time spent in I/O (blocked)
+        ProcessStates newState;
+        ProcessStates oldState;
 
-};
-
-enum class ProcessStates{
-    CREATED,
-    READY,
-    RUNNING,
-    BLOCK,
-    TERMINATED  
 };
 
 enum class Transition{
@@ -56,8 +58,6 @@ class Event {
         int timeStamp;
         Process* process;
         Transition transition;
-        ProcessStates newState;
-        ProcessStates oldState;
         Event() {}
         Event(int ts, Process* p, Transition trans) : timeStamp(ts), process(p), transition(trans) {}
 };
@@ -157,7 +157,7 @@ int main(int argc, char *argv[]) {
         Event* newEvent = new Event();
         newEvent->timeStamp = currentProcess->arrivalTime;
         newEvent->process = currentProcess;
-        newEvent->newState = ProcessStates::CREATED;
+        //newEvent->newState = ProcessStates::CREATED;
         newEvent->transition = Transition::TRANS_TO_READY;
         eventQueue.insertEvent(newEvent);
         // cout << currentProcess.arrivalTime << currentProcess.totalCpuTime << currentProcess.cpuBurst << currentProcess.ioBurst << endl; //for test purposes
@@ -168,6 +168,12 @@ int main(int argc, char *argv[]) {
     // cout << get_randomNumber() << endl; //for test purposes
     // cout << get_randomNumber() << endl; //for test purposes
     // cout << get_randomNumber() << endl; //for test purposes
+    // cout << mydrndom(10) << endl; //for test purposes
+    // cout << mydrndom(20) << endl; //for test purposes
+    // cout << mydrndom(21) << endl; //for test purposes
+    // cout << mydrndom(11) << endl; //for test purposes
+    // cout << mydrndom(32) << endl; //for test purposes
+    // cout << mydrndom(12) << endl; //for test purposes
     // cout << "Processing events: " << endl;
     // while(!eventQueue.isEmpty()){
     //     Event* event = eventQueue.getEvent();
@@ -194,6 +200,7 @@ Process* get_processObj(string lineOfProcess) {
     process->state_ts = arrivalTime;
     process->cpuWaitingTime = 0;
     process->ioTime = 0;
+    process-> newState = ProcessStates::CREATED;
 
     return process;
 }
@@ -262,7 +269,7 @@ void simulationLoop(){
                 // must come from RUNNING
                 // ADD TO RUN QUEUE, no event is generated
                 //currentProcess->cpuWaitingTime += timeInPrevState;
-                int timeSpentRunning = currentTime - prevStateTime; // use saved timestamp
+                int timeSpentRunning = timeInPrevState; // use saved timestamp
                 totalCpuBusyTime += timeSpentRunning; // accumulate the CPU busy time
                 currentProcess->totalCpuTime -= timeSpentRunning; // Update remaining CPU time
                 currentProcess->state_ts = currentTime; // Update the state timestamp
@@ -273,19 +280,19 @@ void simulationLoop(){
             case Transition::TRANS_TO_RUN:{
                 // create event for either preemption or blocking
                 //int waitingTime = currentTime - currentProcess->state_ts;
-                int waitingTime = currentTime - prevStateTime;
+                int waitingTime = timeInPrevState;
                 currentProcess->cpuWaitingTime += waitingTime;
                 currentProcess->state_ts = currentTime; // Update the state timestamp
                 int rdCpuBurst = mydrndom(currentProcess->cpuBurst);
                 int actualCpuBurst = 0;
                 // check if the cpu burst is exceeding the remaining cpu time
                 if(rdCpuBurst >= currentProcess -> totalCpuTime){
+                    actualCpuBurst = currentProcess -> totalCpuTime; // Process will run for the remaining CPU time
                     eventQueue.insertEvent(new Event(currentTime + currentProcess -> totalCpuTime, currentProcess,Transition::TRANS_TO_TERMINATE));
-                    currentProcess->totalCpuTime = 0; // Update remaining CPU time to 0
                 }else{
                     actualCpuBurst = rdCpuBurst;    // Process will run for rdCpuBurst and then block (or be preempted).
                     eventQueue.insertEvent(new Event(currentTime + rdCpuBurst, currentProcess, Transition::TRANS_TO_BLOCK));
-                    currentProcess->totalCpuTime -= actualCpuBurst; // Update remaining CPU time
+                    //currentProcess->totalCpuTime -= actualCpuBurst; // Update remaining CPU time
                 }
                 totalCpuBusyTime += actualCpuBurst;    // accumulate the CPU busy time
                 break;
@@ -309,8 +316,8 @@ void simulationLoop(){
                 ioActiveCount++; // Increment the count of processes doing I/O.
                 int rdIoBurst = mydrndom(currentProcess->ioBurst);
                 currentProcess->ioTime += rdIoBurst;
-                currentProcess->state_ts = currentTime;
                 eventQueue.insertEvent(new Event(currentTime + rdIoBurst, currentProcess, Transition::TRANS_TO_READY));
+                currentProcess->state_ts = currentTime;
                 CALL_SCHEDULER = true;
                 break;
             }
