@@ -216,6 +216,7 @@ Process* get_processObj(string lineOfProcess) {
     process->totalCpuTime = totalCpuTime;
     process->copy_totalCpuTime = totalCpuTime;
     process->cpuBurst = cpuBurst;
+    process->copy_cpuBurst = cpuBurst;
     process->ioBurst = ioBurst;
     process->state_ts = arrivalTime;
     process->cpuWaitingTime = 0;
@@ -259,11 +260,20 @@ void simulationLoop(){
             case Transition::TRANS_TO_READY:{
                 // must come from BLOCKED or CREATED
                 // add to run queue, no event created
+                if(currentProcess->copy_totalCpuTime == 0){
+                    CALL_SCHEDULER = true;
+                    currentProcess->finishTime = CURRENT_TIME;
+                    scheduler.add_expired_process(currentProcess);
+                    break;
+                }
                 currentProcess->newState = ProcessStates::READY;
                 currentProcess->oldState = ProcessStates::CREATED;
                 currentProcess->state_ts = CURRENT_TIME;
                 scheduler.add_process(currentProcess);
                 CALL_SCHEDULER = true;
+                if(CURRENT_RUNNING_PROCESS != nullptr && CURRENT_RUNNING_PROCESS->processId == currentProcess->processId){
+                    CURRENT_RUNNING_PROCESS = nullptr;
+                }
                 break;
             }
             
@@ -288,7 +298,43 @@ void simulationLoop(){
                     currentProcess->copy_totalCpuTime = currentProcess->copy_totalCpuTime - cpu_burst_actual;
                     if(currentProcess->copy_totalCpuTime >0){
                         // process not finished yet, go to block
-                        
+                        currentProcess->newState = ProcessStates::BLOCK;
+                        currentProcess->oldState = ProcessStates::RUNNING;
+                        Event* runEvent = new Event(CURRENT_TIME + cpu_burst_actual, currentProcess, Transition::TRANS_TO_BLOCK);
+                        eventQueue.insertEvent(runEvent);
+                        currentProcess->copy_cpuBurst = 0;
+                    }else{
+                        // process finished
+                        currentProcess->newState = ProcessStates::TERMINATED;
+                        currentProcess->oldState = ProcessStates::RUNNING;
+                        Event* runEvent = new Event(CURRENT_TIME + cpu_burst_actual, currentProcess, Transition::TRANS_TO_READY);
+                        eventQueue.insertEvent(runEvent);
+                    }
+                    CURRENT_TIME += cpu_burst_actual;
+                }else{
+                    currentProcess->copy_totalCpuTime = currentProcess->copy_totalCpuTime - min(currentProcess->copy_cpuBurst, scheduler.quantum);
+                    currentProcess->copy_cpuBurst = currentProcess->copy_cpuBurst - min(currentProcess->copy_cpuBurst,scheduler.quantum);
+                    if(currentProcess->copy_cpuBurst > 0){
+                        // process not finished yet, go to block
+                        currentProcess->newState = ProcessStates::READY;
+                        currentProcess->oldState = ProcessStates::RUNNING;
+                        Event* runEvent = new Event(CURRENT_TIME + scheduler.quantum, currentProcess, Transition::TRANS_TO_READY);
+                        eventQueue.insertEvent(runEvent);
+                    }else{
+                        if(currentProcess->copy_totalCpuTime > 0){
+                            // process not finished yet, go to block
+                            currentProcess->newState = ProcessStates::BLOCK;
+                            currentProcess->oldState = ProcessStates::RUNNING;
+                            Event* runEvent = new Event(CURRENT_TIME + min(currentProcess->copy_cpuBurst,scheduler.quantum), currentProcess, Transition::TRANS_TO_BLOCK);
+                            eventQueue.insertEvent(runEvent);
+                        }else{
+                            // process finished
+                            currentProcess->newState = ProcessStates::TERMINATED;
+                            currentProcess->oldState = ProcessStates::RUNNING;
+                            Event* runEvent = new Event(CURRENT_TIME + min(currentProcess->copy_cpuBurst,scheduler.quantum), currentProcess, Transition::TRANS_TO_READY);
+                            eventQueue.insertEvent(runEvent);
+                        }
+                        CURRENT_TIME += min(currentProcess->copy_cpuBurst, scheduler.quantum);
                     }
                 }
                 // if(currentProcess->copy_totalCpuTime > 0){
@@ -307,21 +353,31 @@ void simulationLoop(){
                 //     eventQueue.insertEvent(runEvent);
                 //     CURRENT_RUNNING_PROCESS = nullptr;
                 // }
-                
+                CURRENT_RUNNING_PROCESS = currentProcess;
                 break;
             }
             
             case Transition::TRANS_TO_BLOCK: {
                 int randomIoBurst = mydrndom(currentProcess->ioBurst);
+                currentProcess->state_ts = CURRENT_TIME;
+                currentProcess->newState = ProcessStates::BLOCK;
+                currentProcess->oldState = ProcessStates::RUNNING;
                 currentProcess->ioTime += randomIoBurst;
-                currentProcess->finishTime += randomIoBurst;
-                currentProcess->copy_totalCpuTime -= randomIoBurst;
-                currentProcess->state_ts = randomIoBurst;
-                currentProcess->newState = ProcessStates::READY;
-                currentProcess->oldState = ProcessStates::BLOCK;
-                Event* runEvent = new Event(CURRENT_TIME + randomIoBurst, currentProcess, Transition::TRANS_TO_RUN);
+                // int randomIoBurst = mydrndom(currentProcess->ioBurst);
+                // currentProcess->ioTime += randomIoBurst;
+                // currentProcess->finishTime += randomIoBurst;
+                // currentProcess->copy_totalCpuTime -= randomIoBurst;
+                // currentProcess->state_ts = randomIoBurst;
+                // currentProcess->newState = ProcessStates::READY;
+                // currentProcess->oldState = ProcessStates::BLOCK;
+                // Event* runEvent = new Event(CURRENT_TIME + randomIoBurst, currentProcess, Transition::TRANS_TO_RUN);
+                // eventQueue.insertEvent(runEvent);
+                Event* runEvent = new Event(CURRENT_TIME + randomIoBurst, currentProcess, Transition::TRANS_TO_READY);
                 eventQueue.insertEvent(runEvent);
                 CALL_SCHEDULER = true;
+                if(CURRENT_RUNNING_PROCESS != nullptr && CURRENT_RUNNING_PROCESS->processId == currentProcess->processId){
+                    CURRENT_RUNNING_PROCESS = nullptr;
+                }
                 break;
             }
             
@@ -337,14 +393,29 @@ void simulationLoop(){
         }
         delete currentEvent; // Free the memory of the event
 
+        // if(CALL_SCHEDULER){
+        //     CALL_SCHEDULER = false;
+        //     if(CURRENT_RUNNING_PROCESS == nullptr){
+        //         CURRENT_RUNNING_PROCESS = scheduler.get_next_process();
+        //     }else if(CURRENT_RUNNING_PROCESS != nullptr){
+        //         Event* runEvent = new Event(CURRENT_TIME, CURRENT_RUNNING_PROCESS, Transition::TRANS_TO_RUN);
+        //         eventQueue.insertEvent(runEvent);
+        //     }
+        // }
         if(CALL_SCHEDULER){
-            CALL_SCHEDULER = false;
+            if(eventQueue.getEvent()->timeStamp == CURRENT_TIME){
+                    continue;
+            }
+            CALL_SCHEDULER = false;    // reset the flag
             if(CURRENT_RUNNING_PROCESS == nullptr){
-                CURRENT_RUNNING_PROCESS = scheduler.get_next_process();
-            }else if(CURRENT_RUNNING_PROCESS != nullptr){
-                Event* runEvent = new Event(CURRENT_TIME, CURRENT_RUNNING_PROCESS, Transition::TRANS_TO_RUN);
+                currentProcess = scheduler.get_next_process();
+                if(currentProcess == nullptr){
+                    continue;
+                }
+                Event* runEvent = new Event(max(CURRENT_TIME, currentProcess->arrivalTime), currentProcess, Transition::TRANS_TO_RUN);
                 eventQueue.insertEvent(runEvent);
             }
+                
         }
     }
 }
