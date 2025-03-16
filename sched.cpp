@@ -13,6 +13,7 @@ vector<string> outputTable;
 ifstream randomNumbers;
 int globalProcessId = 0;
 bool CALL_SCHEDULER = false;
+int CURRENT_TIME = 0;
 /*global accounting counters*/
 int totalCpuBusyTime = 0;
 int totalIoBusyTime = 0;
@@ -34,11 +35,12 @@ class Process {
         int processId;
         int arrivalTime;
         int totalCpuTime;
+        int remainingCpuTime;
         int cpuBurst;
         int ioBurst;
         int finishTime;
         int state_ts;    // the time when the process changed its state
-        int cpuWaitingTime;    // the time the process has been waiting in the ready queue
+        int cpuWaitingTime;    // the time the process has been waiting in the run queue
         int ioTime;    // the time spent in I/O (blocked)
         ProcessStates newState;
         ProcessStates oldState;
@@ -138,8 +140,9 @@ int get_randomNumber();
 int mydrndom(int burst);
 void simulationLoop();
 void printOutcome();
-EventQueue eventQueue;
 Process* CURRENT_RUNNING_PROCESS = nullptr;
+EventQueue eventQueue;
+FCFS_Scheduler scheduler;
 vector<Process*> outcomeProcesses;
 
 int main(int argc, char *argv[]) {
@@ -157,7 +160,6 @@ int main(int argc, char *argv[]) {
         Event* newEvent = new Event();
         newEvent->timeStamp = currentProcess->arrivalTime;
         newEvent->process = currentProcess;
-        //newEvent->newState = ProcessStates::CREATED;
         newEvent->transition = Transition::TRANS_TO_READY;
         eventQueue.insertEvent(newEvent);
         // cout << currentProcess.arrivalTime << currentProcess.totalCpuTime << currentProcess.cpuBurst << currentProcess.ioBurst << endl; //for test purposes
@@ -195,6 +197,7 @@ Process* get_processObj(string lineOfProcess) {
     process->processId = globalProcessId++;
     process->arrivalTime = arrivalTime;
     process->totalCpuTime = totalCpuTime;
+    process->remainingCpuTime = totalCpuTime;
     process->cpuBurst = cpuBurst;
     process->ioBurst = ioBurst;
     process->state_ts = arrivalTime;
@@ -227,123 +230,78 @@ int mydrndom(int burst){
 
 void simulationLoop(){
     Event* currentEvent;
-    FCFS_Scheduler scheduler;
+    
     while(currentEvent = eventQueue.getEvent()){
         Process* currentProcess = currentEvent->process;
-        int currentTime = currentEvent->timeStamp;
-        simulationFinishTime = currentTime;
+        CURRENT_RUNNING_PROCESS = currentProcess;
         Transition currentTransition = currentEvent->transition;
-        // int timeInPrevState = currentTime - currentProcess->state_ts;
-        // currentProcess->state_ts = currentTime;
-        int prevStateTime = currentProcess->state_ts;
-        int timeInPrevState = currentTime - prevStateTime;
-        /* For test */
-        // cout << "Time: " << currentTime 
-        //     << " Process ID: " << currentProcess->processId 
-        //     << " Transition: " << (int)currentTransition << endl;
-        /* For test */
+        CURRENT_TIME = currentEvent->timeStamp;
+        int timeInPrevState = CURRENT_TIME - currentProcess->state_ts;
 
         switch(currentTransition){
             case Transition::TRANS_TO_READY:{
-                // must come from BLOCEKD or CREATED
-                // ADD TO RUN QUEUE, NO EVENT CREATED
-                //currentProcess->cpuWaitingTime += timeInPrevState;
-                // If timeInPrevState is > 0, we assume the process was blocked and has finished I/O.
-                if(timeInPrevState > 0) {
-                    // Process was in I/O, so update I/O busy time.
-                    // Decrement the count of processes in I/O.
-                    ioActiveCount--;
-                    // If no process is performing I/O now, record the I/O busy period.
-                    if(ioActiveCount == 0) {
-                        totalIoBusyTime += (currentTime - ioBusyStart);
-                    }
-                }else{
-                    currentProcess->cpuWaitingTime += timeInPrevState;
-                }
-                currentProcess->state_ts = currentTime; // Update the state timestamp
+                currentProcess->newState = ProcessStates::READY;
+                currentProcess->oldState = ProcessStates::CREATED;
                 scheduler.add_process(currentProcess);
                 CALL_SCHEDULER = true;
                 break;
             }
-            case Transition::TRANS_TO_PREEMPT:{
-                // must come from RUNNING
-                // ADD TO RUN QUEUE, no event is generated
-                //currentProcess->cpuWaitingTime += timeInPrevState;
-                int timeSpentRunning = timeInPrevState; // use saved timestamp
-                totalCpuBusyTime += timeSpentRunning; // accumulate the CPU busy time
-                currentProcess->totalCpuTime -= timeSpentRunning; // Update remaining CPU time
-                currentProcess->state_ts = currentTime; // Update the state timestamp
-                scheduler.add_process(currentProcess);
+            
+            case Transition::TRANS_TO_RUN: {
+                int randomCpuBurst = mydrndom(currentProcess->cpuBurst);
+                if(currentProcess->remainingCpuTime > 0){
+                    int actualBurst = min(randomCpuBurst, currentProcess->remainingCpuTime);
+                    currentProcess->finishTime += actualBurst;
+                    currentProcess->remainingCpuTime -= actualBurst;
+                    currentProcess->newState = ProcessStates::BLOCK;
+                    currentProcess->oldState = ProcessStates::RUNNING;
+                    currentProcess->state_ts = actualBurst;
+                    Event* runEvent = new Event(CURRENT_TIME + actualBurst, currentProcess, Transition::TRANS_TO_BLOCK);
+                    eventQueue.insertEvent(runEvent);
+                }else{
+                    currentProcess->newState = ProcessStates::TERMINATED;
+                    currentProcess->oldState = ProcessStates::RUNNING;
+                    Event* runEvent = new Event(CURRENT_TIME, currentProcess, Transition::TRANS_TO_TERMINATE);
+                    eventQueue.insertEvent(runEvent);
+                    CURRENT_RUNNING_PROCESS = nullptr;
+                }
+                
+                break;
+            }
+            
+            case Transition::TRANS_TO_BLOCK: {
+                int randomIoBurst = mydrndom(currentProcess->ioBurst);
+                currentProcess->ioTime += randomIoBurst;
+                currentProcess->finishTime += randomIoBurst;
+                currentProcess->remainingCpuTime -= randomIoBurst;
+                currentProcess->state_ts = randomIoBurst;
+                currentProcess->newState = ProcessStates::READY;
+                currentProcess->oldState = ProcessStates::BLOCK;
+                Event* runEvent = new Event(CURRENT_TIME + randomIoBurst, currentProcess, Transition::TRANS_TO_RUN);
+                eventQueue.insertEvent(runEvent);
                 CALL_SCHEDULER = true;
                 break;
             }
-            case Transition::TRANS_TO_RUN:{
-                // create event for either preemption or blocking
-                //int waitingTime = currentTime - currentProcess->state_ts;
-                int waitingTime = timeInPrevState;
-                currentProcess->cpuWaitingTime += waitingTime;
-                currentProcess->state_ts = currentTime; // Update the state timestamp
-                int rdCpuBurst = mydrndom(currentProcess->cpuBurst);
-                int actualCpuBurst = 0;
-                // check if the cpu burst is exceeding the remaining cpu time
-                if(rdCpuBurst >= currentProcess -> totalCpuTime){
-                    actualCpuBurst = currentProcess -> totalCpuTime; // Process will run for the remaining CPU time
-                    eventQueue.insertEvent(new Event(currentTime + currentProcess -> totalCpuTime, currentProcess,Transition::TRANS_TO_TERMINATE));
-                }else{
-                    actualCpuBurst = rdCpuBurst;    // Process will run for rdCpuBurst and then block (or be preempted).
-                    eventQueue.insertEvent(new Event(currentTime + rdCpuBurst, currentProcess, Transition::TRANS_TO_BLOCK));
-                    //currentProcess->totalCpuTime -= actualCpuBurst; // Update remaining CPU time
-                }
-                totalCpuBusyTime += actualCpuBurst;    // accumulate the CPU busy time
+            
+            case Transition::TRANS_TO_PREEMPT: {
+                
+                CALL_SCHEDULER = true;
                 break;
             }
             case Transition::TRANS_TO_TERMINATE:{
-                // Process finishes execution.
-                currentProcess->finishTime = currentTime;
-                currentProcess->state_ts = currentTime;
-                // If this process was running, clear the running process pointer.
-                if (CURRENT_RUNNING_PROCESS == currentProcess) {
-                    CURRENT_RUNNING_PROCESS = nullptr;
-                }
-                break;
-            }
-            case Transition::TRANS_TO_BLOCK:{
-                // create event for when process becomes READY again
-                // When the first process enters I/O, mark the start of an I/O busy period.
-                if(ioActiveCount == 0) {
-                    ioBusyStart = currentTime;
-                }
-                ioActiveCount++; // Increment the count of processes doing I/O.
-                int rdIoBurst = mydrndom(currentProcess->ioBurst);
-                currentProcess->ioTime += rdIoBurst;
-                eventQueue.insertEvent(new Event(currentTime + rdIoBurst, currentProcess, Transition::TRANS_TO_READY));
-                currentProcess->state_ts = currentTime;
-                CALL_SCHEDULER = true;
+                
                 break;
             }
         }
         delete currentEvent; // Free the memory of the event
 
-        // if(CALL_SCHEDULER && eventQueue.get_next_event_time() != currentTime){
-        //     CALL_SCHEDULER = false;
-        //     if(CURRENT_RUNNING_PROCESS == nullptr){
-        //         CURRENT_RUNNING_PROCESS = scheduler.get_next_process();
-        //         if(CURRENT_RUNNING_PROCESS != nullptr){
-        //             Event* runEvent = new Event(currentTime, CURRENT_RUNNING_PROCESS, Transition::TRANS_TO_RUN);
-        //         }
-        //     }
-        // }
         if(CALL_SCHEDULER){
-            if(eventQueue.get_next_event_time() == currentTime){
-                continue;
-            }
             CALL_SCHEDULER = false;
             if(CURRENT_RUNNING_PROCESS == nullptr){
                 CURRENT_RUNNING_PROCESS = scheduler.get_next_process();
-                if(CURRENT_RUNNING_PROCESS != nullptr){
-                    Event* runEvent = new Event(currentTime, CURRENT_RUNNING_PROCESS, Transition::TRANS_TO_RUN);
-                    eventQueue.insertEvent(runEvent);
-                }
+            }else if(CURRENT_RUNNING_PROCESS != nullptr){
+                Event* runEvent = new Event(CURRENT_TIME, CURRENT_RUNNING_PROCESS, Transition::TRANS_TO_RUN);
+                eventQueue.insertEvent(runEvent);
             }
         }
     }
@@ -353,7 +311,8 @@ void printOutcome(){
     double sumTurnaroundTime = 0;
     double sumCpuWaitingTime = 0;
     int processCount = outcomeProcesses.size();
-    for(Process* process : outcomeProcesses){
+    for(int i = 0; i < processCount; i++){
+        Process* process = outcomeProcesses[i];
         int turnaroundTime = process->finishTime - process->arrivalTime;
         sumTurnaroundTime += turnaroundTime;
         sumCpuWaitingTime += process->cpuWaitingTime;
@@ -367,5 +326,5 @@ void printOutcome(){
     double ioUtilization = 100.0 * (double) totalIoBusyTime / simulationFinishTime;
     double throughput = 100.0 * (double) processCount / simulationFinishTime;
     printf("SUM: %d %.2lf %.2lf %.2lf %.2lf %.3lf\n",
-        simulationFinishTime, cpuUtilization, ioUtilization, avgTurnaroundTime, avgCpuWaitingTime, throughput);
+        outcomeProcesses[processCount-1]->finishTime, cpuUtilization, ioUtilization, avgTurnaroundTime, avgCpuWaitingTime, throughput);
 }
