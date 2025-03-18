@@ -51,6 +51,10 @@ int main(int argc, char *argv[]) {
             scheduler = new FCFS_Scheduler(10000);
             break;
         }
+        case 'L':{
+            scheduler = new LCFS_Scheduler(10000);
+            break;
+        }
     }
     // while(getline(readFile, lineOfProcess)){
     //     Process* currentProcess = get_processObj(lineOfProcess);

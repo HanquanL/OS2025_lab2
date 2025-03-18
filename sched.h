@@ -175,13 +175,7 @@ class FCFS_Scheduler : public Scheduler{
             expiredQueue.push_back(process);
         }
         Process* get_next_process() override {
-            // if(runQueue.empty()){
-            //     return nullptr;
-            // }
-            // Process* nextProcess = runQueue.front();
-            // runQueue.pop();
-            // return nextProcess;
-            Process* result = nullptr;
+            Process* process = nullptr;
             while(!runQueue.empty()){
                 
                 if(runQueue.front()->copy_totalCpuTime == 0){
@@ -190,12 +184,59 @@ class FCFS_Scheduler : public Scheduler{
                     continue;
                 }
                 
-                result = runQueue.front();
+                process = runQueue.front();
                 runQueue.pop_front();
                 break;
             }
             
-            return result;
+            return process;
+        }
+        int sizeOfRunQ() override {
+            return runQueue.size();
+        }
+        int sizeOfExpQ() override {
+            return expiredQueue.size();
+        }
+        bool isEmpty() {
+            return runQueue.empty();
+        }
+        string getSchedulerName() override {
+            return name;
+        }
+        const list<Process*>& getExpiredQueue() const override { return expiredQueue; }
+};
+
+class LCFS_Scheduler : public Scheduler{
+    public:
+        list<Process*> runQueue, expiredQueue;
+        string name;
+        int quantum;
+        LCFS_Scheduler(int qtm) : Scheduler(qtm) {
+            this->quantum = qtm;
+            this->name = "LCFS";
+        }
+        ~LCFS_Scheduler() {}
+        void add_process(Process* process) override {
+            runQueue.push_back(process);
+        }
+        void add_expired_process(Process* process) override {
+            expiredQueue.push_back(process);
+        }
+        Process* get_next_process() override{
+            Process* process = nullptr;
+            while(!runQueue.empty()){
+                
+                if(runQueue.back()->copy_totalCpuTime == 0){
+                    expiredQueue.push_back(runQueue.back());
+                    runQueue.pop_back();
+                    continue;
+                }
+                
+                process = runQueue.back();
+                runQueue.pop_back();
+                break;
+            }
+            return process;
         }
         int sizeOfRunQ() override {
             return runQueue.size();
