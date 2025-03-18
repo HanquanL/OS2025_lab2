@@ -6,6 +6,7 @@
 #include <list>
 #include <queue>
 #include <algorithm>
+#include "sched.h"
 
 using namespace std;
 
@@ -13,7 +14,6 @@ vector<string> outputTable;
 ifstream randomNumbers;
 vector<int> randvals;
 int randomRange, randomOffset = 0;
-int globalProcessId = 0;
 /*global accounting counters*/
 int totalCpuBusyTime = 0;
 int totalIoBusyTime = 0;
@@ -22,87 +22,6 @@ int ioActiveCount = 0;        // Number of processes currently doing I/O
 int ioBusyStart = 0;          // Timestamp when I/O activity started
 /*global accounting counters end*/
 
-enum class ProcessStates{
-    CREATED,
-    READY,
-    RUNNING,
-    BLOCK,
-    TERMINATED  
-};
-
-class Process {
-    public:
-        int processId;
-        int arrivalTime;
-        int totalCpuTime;
-        int cpuBurst;
-        int ioBurst;
-        int copy_arrivalTime;
-        int copy_totalCpuTime;
-        int copy_cpuBurst;
-        int finishTime;
-        int state_ts;    // the time when the process changed its state
-        int cpuWaitingTime;    // the time the process has been waiting in the run queue
-        int ioTime;    // the time spent in I/O blocked
-        ProcessStates State;
-        int priority;
-        int cuurentPriority;
-};
-
-enum class Transition{
-    TRANS_TO_READY,
-    TRANS_TO_RUN,
-    TRANS_TO_BLOCK,
-    TRANS_TO_PREEMPT,
-    TRANS_TO_TERMINATE
-};
-
-class Event {
-    public:
-        int timeStamp;
-        Process* process;
-        Transition transition;
-        Event() {}
-        Event(int ts, Process* p, Transition trans) : timeStamp(ts), process(p), transition(trans) {}
-};
-
-class EventQueue{
-    private:
-        list<Event*> events;
-    
-    public:
-        void insertEvent(Event* event){
-            auto it = events.begin();
-            while(it != events.end() && (*it)->timeStamp < event->timeStamp){
-                it++;
-            }
-            events.insert(it, event);
-        }
-
-        Event* getEvent(){
-            if(events.empty()){
-                return nullptr;
-            }
-            Event* event = events.front();
-            events.pop_front();
-            return event;
-        }
-
-        bool removeEvent(Event* event){
-            for(auto it = events.begin(); it != events.end(); it++){
-                if(*it == event){
-                    events.erase(it);
-                    delete *it;
-                    return true;
-                }
-            }
-            return false;
-        }
-
-        bool isEmpty(){
-            return events.empty();
-        }
-};
 
 class Scheduler{
     protected:
@@ -117,6 +36,8 @@ class Scheduler{
         virtual void add_expired_process(Process* process) = 0;
         virtual Process* get_next_process() = 0;
         virtual bool unblock_preempt(Process* running, Process* unblocked){ return false; }
+        virtual int sizeOfRunQ() { return runQueue.size(); }
+        virtual int sizeOfExpQ() { return expiredQueue.size(); }
 };
 
 class FCFS_Scheduler : public Scheduler{
@@ -143,34 +64,41 @@ class FCFS_Scheduler : public Scheduler{
             runQueue.pop();
             return nextProcess;
         }
+        int sizeOfRunQ() override {
+            return runQueue.size();
+        }
+        int sizeOfExpQ() override {
+            return expiredQueue.size();
+        }
 };
 
-Process* get_processObj(string lineOfProcess);
 void get_randomNumber();
 int mydrndom(int burst);
 void simulationLoop();
 void printOutcome();
-EventQueue eventQueue;
-FCFS_Scheduler scheduler(10000);
+void readInputFile(EventQueue* evenQ, string inputFile);
+
+
 vector<Process*> outcomeProcesses;
 
 int main(int argc, char *argv[]) {
-    
     string inputFile = argv[1];
     string rfile = argv[2];
-    ifstream readFile (inputFile);
     string lineOfProcess;
+    EventQueue* eventQueue = new EventQueue();
+    FCFS_Scheduler scheduler(10000);
     randomNumbers.open(rfile);
     get_randomNumber();
-    while(getline(readFile, lineOfProcess)){
-        Process* currentProcess = get_processObj(lineOfProcess);
-        outcomeProcesses.push_back(currentProcess);
-        Event* newEvent = new Event(currentProcess->arrivalTime, currentProcess, Transition::TRANS_TO_READY);
-        eventQueue.insertEvent(newEvent);
-        // cout << currentProcess.arrivalTime << currentProcess.totalCpuTime << currentProcess.cpuBurst << currentProcess.ioBurst << endl; //for test purposes
-    }
+    // while(getline(readFile, lineOfProcess)){
+    //     Process* currentProcess = get_processObj(lineOfProcess);
+    //     outcomeProcesses.push_back(currentProcess);
+    //     Event* newEvent = new Event(currentProcess->arrivalTime, currentProcess, Transition::TRANS_TO_READY);
+    //     eventQueue->insertEvent(newEvent);
+    //     // cout << currentProcess.arrivalTime << currentProcess.totalCpuTime << currentProcess.cpuBurst << currentProcess.ioBurst << endl; //for test purposes
+    // }
+    readInputFile(eventQueue, inputFile);
     //simulationLoop();
-    //printOutcome();
+    printOutcome();
     // cout << mydrndom(10) << endl; //for test purposes
     // cout << mydrndom(10) << endl; //for test purposes
     // cout << mydrndom(10) << endl; //for test purposes
@@ -182,37 +110,36 @@ int main(int argc, char *argv[]) {
     // cout << mydrndom(32) << endl; //for test purposes
     // cout << mydrndom(12) << endl; //for test purposes
     // cout << "Processing events: " << endl;
-    while(!eventQueue.isEmpty()){
-        Event* event = eventQueue.getEvent();
-        cout << "Time: " << event -> timeStamp
-            << " Process ID: " << event -> process -> processId
-            << " State: " << (int)event -> transition << endl;
-        delete event;
+    EventQueue temQ = *eventQueue;
+    while(Event* currentEvent = temQ.getEvent()){
+        cout << "arrival time: " << currentEvent->get_timestamp()
+            <<" PID: " << currentEvent->get_process()->processId
+             << endl;
+        temQ.removeEvent();
     }
-    
     return 0;
 }
 
-Process* get_processObj(string lineOfProcess) {
-    int arrivalTime, totalCpuTime, cpuBurst, ioBurst;
-    istringstream iss(lineOfProcess);
-    iss >> arrivalTime >> totalCpuTime >> cpuBurst >> ioBurst;
+// Process* get_processObj(int processId, string lineOfProcess) {
+//     int arrivalTime, totalCpuTime, cpuBurst, ioBurst;
+//     istringstream iss(lineOfProcess);
+//     iss >> arrivalTime >> totalCpuTime >> cpuBurst >> ioBurst;
 
-    Process* process = new Process();
-    process->processId = globalProcessId++;
-    process->arrivalTime = arrivalTime;
-    process->totalCpuTime = totalCpuTime;
-    process->copy_totalCpuTime = totalCpuTime;
-    process->cpuBurst = cpuBurst;
-    process->copy_cpuBurst = cpuBurst;
-    process->ioBurst = ioBurst;
-    process->state_ts = arrivalTime;
-    process->cpuWaitingTime = 0;
-    process->ioTime = 0;
-    process->State = ProcessStates::CREATED;
+//     Process* process = new Process();
+//     process->processId = processId;
+//     process->arrivalTime = arrivalTime;
+//     process->totalCpuTime = totalCpuTime;
+//     process->copy_totalCpuTime = totalCpuTime;
+//     process->cpuBurst = cpuBurst;
+//     process->copy_cpuBurst = cpuBurst;
+//     process->ioBurst = ioBurst;
+//     process->state_ts = arrivalTime;
+//     process->cpuWaitingTime = 0;
+//     process->ioTime = 0;
+//     process->newState = ProcessStates::CREATED;
 
-    return process;
-}
+//     return process;
+// }
 
 void get_randomNumber(){
     string line;
@@ -233,32 +160,60 @@ int mydrndom(int burst){
     return number;
 }
 
-void simulationLoop(){
-    Event* currentEvent;
-    Process* CURRENT_RUNNING_PROCESS = nullptr;
-    int CURRENT_TIME = 0;
+// void simulationLoop(){
+//     Event* currentEvent;
+//     Process* CURRENT_RUNNING_PROCESS = nullptr;
+//     int CURRENT_TIME = 0;
+//     while(currentEvent = eventQueue->getEvent()){
+//         Process *proc = currentEvent->process; //this is the process the event works on
+//         CURRENT_TIME = currentEvent->timeStamp;
+//         Transition transaction = currentEvent->transition;
+//         int timeInPrevState = CURRENT_TIME - proc->state_ts;
+//         delete currentEvent;
+//         switch(transaction){
+//             case Transition::TRANS_TO_READY:{
+//                 scheduler.add_process(proc);
+//                 break;
+//             }
+//         }
+//     }
    
-}
+// }
 
-void printOutcome(){
-    double sumTurnaroundTime = 0;
-    double sumCpuWaitingTime = 0;
-    int processCount = outcomeProcesses.size();
-    cout << scheduler.name << endl;
-    for(int i = 0; i < processCount; i++){
-        Process* process = outcomeProcesses[i];
-        int turnaroundTime = process->finishTime - process->arrivalTime;
-        sumTurnaroundTime += turnaroundTime;
-        sumCpuWaitingTime += process->cpuWaitingTime;
-        printf("%04d: %4d %4d %4d %4d | %5d %5d %5d %5d\n",
-            process->processId, process->arrivalTime, process->totalCpuTime, process->cpuBurst, process->ioBurst,
-            process->finishTime, turnaroundTime, process->ioTime, process->cpuWaitingTime);
+// void printOutcome(){
+//     double sumTurnaroundTime = 0;
+//     double sumCpuWaitingTime = 0;
+//     int processCount = outcomeProcesses.size();
+//     //cout << scheduler.name << endl;
+//     for(int i = 0; i < processCount; i++){
+//         Process* process = outcomeProcesses[i];
+//         int turnaroundTime = process->finishTime - process->arrivalTime;
+//         sumTurnaroundTime += turnaroundTime;
+//         sumCpuWaitingTime += process->cpuWaitingTime;
+//         printf("%04d: %4d %4d %4d %4d | %5d %5d %5d %5d\n",
+//             process->processId, process->arrivalTime, process->totalCpuTime, process->cpuBurst, process->ioBurst,
+//             process->finishTime, turnaroundTime, process->ioTime, process->cpuWaitingTime);
+//     }
+//     double avgTurnaroundTime = sumTurnaroundTime / processCount;
+//     double avgCpuWaitingTime = sumCpuWaitingTime / processCount;
+//     double cpuUtilization = 100.0 * (double) totalCpuBusyTime / simulationFinishTime;
+//     double ioUtilization = 100.0 * (double) totalIoBusyTime / simulationFinishTime;
+//     double throughput = 100.0 * (double) processCount / simulationFinishTime;
+//     printf("SUM: %d %.2lf %.2lf %.2lf %.2lf %.3lf\n",
+//         outcomeProcesses[processCount-1]->finishTime, cpuUtilization, ioUtilization, avgTurnaroundTime, avgCpuWaitingTime, throughput);
+// }
+
+void readInputFile(EventQueue* evenQ, string inputFile){
+    fstream file;
+    file.open(inputFile);
+    string lineOfProcess;
+    int processId = 0;
+    int arrivalTime, totalCpuTime, cpuBurst, ioBurst;
+    while(file >> arrivalTime >> totalCpuTime >> cpuBurst >> ioBurst){
+        Process* currentProcess = new Process(processId, arrivalTime, totalCpuTime, cpuBurst, ioBurst);
+        outcomeProcesses.push_back(currentProcess);
+        Event* newEvent = new Event(currentProcess->arrivalTime, currentProcess, Transition::TRANS_TO_READY);
+        evenQ->insertEvent(newEvent);
+        processId++;
     }
-    double avgTurnaroundTime = sumTurnaroundTime / processCount;
-    double avgCpuWaitingTime = sumCpuWaitingTime / processCount;
-    double cpuUtilization = 100.0 * (double) totalCpuBusyTime / simulationFinishTime;
-    double ioUtilization = 100.0 * (double) totalIoBusyTime / simulationFinishTime;
-    double throughput = 100.0 * (double) processCount / simulationFinishTime;
-    printf("SUM: %d %.2lf %.2lf %.2lf %.2lf %.3lf\n",
-        outcomeProcesses[processCount-1]->finishTime, cpuUtilization, ioUtilization, avgTurnaroundTime, avgCpuWaitingTime, throughput);
 }
