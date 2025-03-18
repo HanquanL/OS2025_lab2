@@ -21,6 +21,27 @@ enum class Transition{
     TRANS_TO_PREEMPT,
     TRANS_TO_TERMINATE
 };
+inline string processStateToString(ProcessStates state) {
+    switch(state) {
+        case ProcessStates::CREATED:    return "CREATED";
+        case ProcessStates::READY:      return "READY";
+        case ProcessStates::RUNNING:    return "RUNNING";
+        case ProcessStates::BLOCK:      return "BLOCK";
+        case ProcessStates::TERMINATED: return "TERMINATED";
+        default:                        return "UNKNOWN";
+    }
+}
+
+inline string transitionToString(Transition trans) {
+    switch(trans) {
+        case Transition::TRANS_TO_READY:     return "TRANS_TO_READY";
+        case Transition::TRANS_TO_RUN:       return "TRANS_TO_RUN";
+        case Transition::TRANS_TO_BLOCK:     return "TRANS_TO_BLOCK";
+        case Transition::TRANS_TO_PREEMPT:   return "TRANS_TO_PREEMPT";
+        case Transition::TRANS_TO_TERMINATE: return "TRANS_TO_TERMINATE";
+        default:                           return "UNKNOWN";
+    }
+}
 
 class Process {
     public:
@@ -40,17 +61,21 @@ class Process {
         ProcessStates oleState;
         int priority;
         int cuurentPriority;
-        Process(int pid, int AT, int TC, int CB, int IO) {
+        Process(int pid, int AT, int TC, int CB, int IO, int PRIO) {
             processId = pid;
             arrivalTime = AT;
-            totalCpuTime = TC;
-            cpuBurst = CB;
-            ioBurst = IO;
             copy_arrivalTime = AT;
+            totalCpuTime = TC;
             copy_totalCpuTime = TC;
+            cpuBurst = CB;
             copy_cpuBurst = 0;
+            ioBurst = IO;
             state_ts = AT;
+            ioTime = 0;
+            cpuWaitingTime = 0;
             newState = ProcessStates::CREATED;
+            priority = PRIO;
+            cuurentPriority = PRIO;
         }
 };
 
@@ -90,6 +115,7 @@ class EventQueue{
                     return;
                 }
             }
+            events.push_back(event);
         }
 
         Event* getEvent(){
@@ -109,5 +135,361 @@ class EventQueue{
         bool isEmpty(){
             return events.empty();
         }
+};
+
+class Scheduler{
+        
+    public:
+        list<Process*> runQueue, expiredQueue;
+        string name;
+        int quantum;
+        Scheduler(int qtm) : quantum(qtm) {
+            this->quantum = qtm;
+        }
+        virtual ~Scheduler() {}    // virtual destructor
+        virtual void add_process(Process* process) = 0;
+        virtual void add_expired_process(Process* process) = 0;
+        virtual Process* get_next_process() = 0;
+        virtual bool unblock_preempt(Process* running, Process* unblocked){ return false; }
+        virtual int sizeOfRunQ() { return runQueue.size(); }
+        virtual int sizeOfExpQ() { return expiredQueue.size(); }
+        virtual string getSchedulerName() { return name; }
+        virtual const list<Process*>& getExpiredQueue() const { return expiredQueue; }
+};
+
+class FCFS_Scheduler : public Scheduler{
+        
+    public:
+        list<Process*> runQueue, expiredQueue;
+        string name;
+        int quantum;
+        FCFS_Scheduler(int qtm) : Scheduler(qtm) {
+            this->quantum = qtm;
+            this->name = "FCFS";
+        }
+        ~FCFS_Scheduler() {}
+        void add_process(Process* process) override {
+            runQueue.push_back(process);
+        }
+        void add_expired_process(Process* process) override {
+            expiredQueue.push_back(process);
+        }
+        Process* get_next_process() override {
+            Process* process = nullptr;
+            while(!runQueue.empty()){
+                
+                if(runQueue.front()->copy_totalCpuTime == 0){
+                    expiredQueue.push_back(runQueue.front());
+                    runQueue.pop_front();
+                    continue;
+                }
+                
+                process = runQueue.front();
+                runQueue.pop_front();
+                break;
+            }
+            
+            return process;
+        }
+        int sizeOfRunQ() override {
+            return runQueue.size();
+        }
+        int sizeOfExpQ() override {
+            return expiredQueue.size();
+        }
+        bool isEmpty() {
+            return runQueue.empty();
+        }
+        string getSchedulerName() override {
+            return name;
+        }
+        const list<Process*>& getExpiredQueue() const override { return expiredQueue; }
+};
+
+class LCFS_Scheduler : public Scheduler{
+    public:
+        list<Process*> runQueue, expiredQueue;
+        string name;
+        int quantum;
+        LCFS_Scheduler(int qtm) : Scheduler(qtm) {
+            this->quantum = qtm;
+            this->name = "LCFS";
+        }
+        ~LCFS_Scheduler() {}
+        void add_process(Process* process) override {
+            runQueue.push_back(process);
+        }
+        void add_expired_process(Process* process) override {
+            expiredQueue.push_back(process);
+        }
+        Process* get_next_process() override{
+            Process* process = nullptr;
+            while(!runQueue.empty()){
+                
+                if(runQueue.back()->copy_totalCpuTime == 0){
+                    expiredQueue.push_back(runQueue.back());
+                    runQueue.pop_back();
+                    continue;
+                }
+                
+                process = runQueue.back();
+                runQueue.pop_back();
+                break;
+            }
+            return process;
+        }
+        int sizeOfRunQ() override {
+            return runQueue.size();
+        }
+        int sizeOfExpQ() override {
+            return expiredQueue.size();
+        }
+        bool isEmpty() {
+            return runQueue.empty();
+        }
+        string getSchedulerName() override {
+            return name;
+        }
+        const list<Process*>& getExpiredQueue() const override { return expiredQueue; }
+};
+
+class SRTF_Scheduler : public Scheduler{
+    public:
+        list<Process*> runQueue, expiredQueue;
+        string name;
+        int quantum;
+        SRTF_Scheduler(int qtm) : Scheduler(qtm) {
+            this->quantum = qtm;
+            this->name = "SRTF";
+        }
+        ~SRTF_Scheduler() {}
+        void add_process(Process* process) override {
+            runQueue.push_back(process);
+        }
+        void add_expired_process(Process* process) override {
+            expiredQueue.push_back(process);
+        }
+        Process* get_next_process() override {
+            if(runQueue.empty()){
+                return nullptr;
+            }
+            for(list<Process*>::iterator it=runQueue.begin(); it != runQueue.end();){
+                if ((*it) -> copy_totalCpuTime == 0 ){
+                    expiredQueue.push_back(*it);
+                    it=runQueue.erase(it);
+                }else{
+                    ++it;
+                }
+            }
+            int tempTC = runQueue.front()->copy_totalCpuTime;
+            Process* process = runQueue.front();
+            for(auto it = runQueue.begin(); it != runQueue.end(); it++){
+                if((*it)->copy_totalCpuTime < tempTC){
+                    tempTC = (*it)->copy_totalCpuTime;
+                    process = *it;
+                }
+            }
+            runQueue.remove(process);
+            return process;
+
+        }
+        int sizeOfRunQ() override {
+            return runQueue.size();
+        }
+        int sizeOfExpQ() override {
+            return expiredQueue.size();
+        }
+        bool isEmpty() {
+            return runQueue.empty();
+        }
+        string getSchedulerName() override {
+            return name;
+        }
+        const list<Process*>& getExpiredQueue() const override { return expiredQueue; }
+};
+
+class RR_Scheduler : public Scheduler{
+    public:
+        list<Process*> runQueue, expiredQueue;
+        string name;
+        int quantum;
+        RR_Scheduler(int qtm) : Scheduler(qtm) {
+            this->quantum = qtm;
+            this->name = "RR" + to_string(qtm);
+        }
+        ~RR_Scheduler() {}
+        void add_process(Process* process) override {
+            runQueue.push_back(process);
+        }
+        void add_expired_process(Process* process) override {
+            expiredQueue.push_back(process);
+        }
+        Process* get_next_process() override{
+            Process* process = nullptr;
+            while(!runQueue.empty()){
+                
+                if(runQueue.front()->copy_totalCpuTime == 0){
+                    expiredQueue.push_back(runQueue.front());
+                    runQueue.pop_front();
+                    continue;
+                }
+                
+                process = runQueue.front();
+                runQueue.pop_front();
+                break;
+            }
+            return process;
+        }
+        int sizeOfRunQ() override {
+            return runQueue.size();
+        }
+        int sizeOfExpQ() override {
+            return expiredQueue.size();
+        }
+        bool isEmpty() {
+            return runQueue.empty();
+        }
+        string getSchedulerName() override {
+            return name;
+        }
+        const list<Process*>& getExpiredQueue() const override { return expiredQueue; }
+};
+
+class PRIO_Scheduler : public Scheduler{
+    public:
+        list<Process*> runQueue, expiredQueue;
+        string name;
+        int quantum;
+        int maxprio;
+        PRIO_Scheduler(int qtm, int maxprio) : Scheduler(qtm) {
+            this->quantum = qtm;
+            this->maxprio = maxprio;
+            this->name = "PRIO" + to_string(qtm);
+        }
+        ~PRIO_Scheduler() {}
+        void add_process(Process* process) override {
+            if(process->cuurentPriority == -1){
+                process->cuurentPriority = process->priority;
+                add_expired_process(process);
+            }
+            runQueue.push_back(process);
+        }
+        void add_expired_process(Process* process) override {
+            expiredQueue.push_back(process);
+        }
+        Process* get_next_process() override{
+            if(runQueue.empty()){
+                list<Process*> tempList = runQueue;
+                runQueue = expiredQueue;
+                expiredQueue = tempList;
+            }
+
+            // remove expired processes from runQueue
+            for(auto it=runQueue.begin(); it != runQueue.end();){
+                if((*it)->copy_totalCpuTime == 0){
+                    expiredQueue.push_back(*it);
+                    it = runQueue.erase(it);
+                }else{
+                    ++it;
+                }
+            }
+
+            if(runQueue.empty()){
+                return nullptr;
+            }
+
+            int max = runQueue.front()->cuurentPriority;
+            Process* process = runQueue.front();
+            for(auto it = runQueue.begin(); it != runQueue.end(); it++){
+                if((*it)->cuurentPriority > max){
+                    process = *it;
+                    max = (*it)->cuurentPriority;
+                    
+                }
+            }
+            runQueue.remove(process);
+            return process;
+        }
+        int sizeOfRunQ() override {
+            return runQueue.size();
+        }
+        int sizeOfExpQ() override {
+            return expiredQueue.size();
+        }
+        bool isEmpty() {
+            return runQueue.empty();
+        }
+        string getSchedulerName() override {
+            return name;
+        }
+        const list<Process*>& getExpiredQueue() const override { return expiredQueue; }
+};
+
+class Pre_PRIO_Scheduler : public Scheduler{
+    public:
+        list<Process*> runQueue, expiredQueue;
+        string name;
+        int quantum;
+        int maxprio;
+        Pre_PRIO_Scheduler(int qtm, int maxprio) : Scheduler(qtm) {
+            this->quantum = qtm;
+            this->maxprio = maxprio;
+            this->name = "PREPRIO" + to_string(qtm);
+        }
+        ~Pre_PRIO_Scheduler() {}
+        Process* get_next_process() override{
+            if(runQueue.empty()){
+                list<Process*> tempList = runQueue;
+                runQueue = expiredQueue;
+                expiredQueue = tempList;
+            }
+            for(auto it=runQueue.begin(); it != runQueue.end();){
+                if((*it)->copy_totalCpuTime == 0){
+                    expiredQueue.push_back(*it);
+                    it = runQueue.erase(it);
+                }else{
+                    ++it;
+                }
+            }
+
+            if(runQueue.empty()){
+                return nullptr;
+            }
+
+            int max = runQueue.front()->cuurentPriority;
+            Process* process = runQueue.front();
+            for(auto it = runQueue.begin(); it != runQueue.end(); it++){
+                if((*it)->cuurentPriority > max){
+                    process = *it;
+                    max = (*it)->cuurentPriority;
+                    
+                }
+            }
+            runQueue.remove(process);
+            return process;
+        }
+        void add_process(Process* process){
+            if(process->cuurentPriority == -1){
+                process->cuurentPriority = process->priority;
+                add_expired_process(process);
+            }
+            runQueue.push_back(process);
+        }
+        void add_expired_process(Process* process) override {
+            expiredQueue.push_back(process);
+        }
+        int sizeOfRunQ() override {
+            return runQueue.size();
+        }
+        int sizeOfExpQ() override {
+            return expiredQueue.size();
+        }
+        bool isEmpty() {
+            return runQueue.empty();
+        }
+        string getSchedulerName() override {
+            return name;
+        }
+        const list<Process*>& getExpiredQueue() const override { return expiredQueue; }
 };
 #endif
