@@ -55,6 +55,30 @@ int main(int argc, char *argv[]) {
             scheduler = new LCFS_Scheduler(10000);
             break;
         }
+        case 'S':{
+            scheduler = new SRTF_Scheduler(10000);
+            break;
+        }
+        case 'R':{
+            scheduler = new RR_Scheduler(atoi(schedulerType.substr(1).c_str()));
+            break;
+        }
+        case 'P':{
+            if(schedulerType.size() > 3){
+                maxPriority = atoi(schedulerType.substr(3).c_str());
+            }
+            scheduler = new PRIO_Scheduler(atoi(schedulerType.substr(1).c_str()), maxPriority);
+            ifPrio = true;
+            break;
+        }
+        case 'E':{
+            if(schedulerType.size() > 3){
+                maxPriority = atoi(schedulerType.substr(3).c_str());
+            }
+            scheduler = new Pre_PRIO_Scheduler(atoi(schedulerType.substr(1).c_str()), maxPriority);
+            ifPrio = true;
+            break;
+        }
     }
     // while(getline(readFile, lineOfProcess)){
     //     Process* currentProcess = get_processObj(lineOfProcess);
@@ -323,7 +347,7 @@ void printOutcome(Scheduler* scheduler){
         sumCpuWaitingTime += proc->cpuWaitingTime;
         priority = ifPrio ? proc->priority+1 : proc->priority+2;
         printf("%04d: %4d %4d %4d %4d %4d | %5d %5d %5d %5d\n",
-            proc->processId, proc->arrivalTime, proc->totalCpuTime, proc->cpuBurst, proc->ioBurst, proc->priority,
+            proc->processId, proc->arrivalTime, proc->totalCpuTime, proc->cpuBurst, proc->ioBurst, priority,
             proc->finishTime, (proc->finishTime - proc->arrivalTime), proc->ioTime, proc->cpuWaitingTime);
     }
     double avgTurnaroundTime = sumTurnaroundTime / size;
