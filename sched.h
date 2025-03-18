@@ -40,17 +40,21 @@ class Process {
         ProcessStates oleState;
         int priority;
         int cuurentPriority;
-        Process(int pid, int AT, int TC, int CB, int IO) {
+        Process(int pid, int AT, int TC, int CB, int IO, int PRIO) {
             processId = pid;
             arrivalTime = AT;
-            totalCpuTime = TC;
-            cpuBurst = CB;
-            ioBurst = IO;
             copy_arrivalTime = AT;
+            totalCpuTime = TC;
             copy_totalCpuTime = TC;
+            cpuBurst = CB;
             copy_cpuBurst = 0;
+            ioBurst = IO;
             state_ts = AT;
+            ioTime = 0;
+            cpuWaitingTime = 0;
             newState = ProcessStates::CREATED;
+            priority = PRIO;
+            cuurentPriority = PRIO;
         }
 };
 
@@ -90,6 +94,7 @@ class EventQueue{
                     return;
                 }
             }
+            events.push_back(event);
         }
 
         Event* getEvent(){
