@@ -33,7 +33,7 @@ int main(int argc, char *argv[]) {
     EventQueue* eventQueue = new EventQueue();
     Scheduler* scheduler;
     randomNumbers.open(rfile);
-    get_randomNumber();
+  
     while((c = getopt(argc, argv, "v::s:")) != -1){
         switch(c){
             case 'v':
@@ -59,8 +59,9 @@ int main(int argc, char *argv[]) {
     //     eventQueue->insertEvent(newEvent);
     //     // cout << currentProcess.arrivalTime << currentProcess.totalCpuTime << currentProcess.cpuBurst << currentProcess.ioBurst << endl; //for test purposes
     // }
+    get_randomNumber();
     readInputFile(eventQueue, inputFile);
-    //simulationLoop();
+    simulationLoop(eventQueue, scheduler, verbose);
     printOutcome(scheduler);
     // cout << mydrndom(10) << endl; //for test purposes
     // cout << mydrndom(10) << endl; //for test purposes
@@ -73,14 +74,6 @@ int main(int argc, char *argv[]) {
     // cout << mydrndom(32) << endl; //for test purposes
     // cout << mydrndom(12) << endl; //for test purposes
     // cout << "Processing events: " << endl;
-    EventQueue temQ = *eventQueue;
-    while(Event* currentEvent = temQ.getEvent()){
-        cout << "arrival time: " << currentEvent->get_timestamp()    //for test purposes
-            <<" PID: " << currentEvent->get_process()->processId
-            << " transition: " << (int)currentEvent->get_transition() 
-            << endl;
-        temQ.removeEvent();
-    }
     return 0;
 }
 
@@ -124,25 +117,6 @@ int mydrndom(int burst){
     return number;
 }
 
-// void simulationLoop(){
-//     Event* currentEvent;
-//     Process* CURRENT_RUNNING_PROCESS = nullptr;
-//     int CURRENT_TIME = 0;
-//     while(currentEvent = eventQueue->getEvent()){
-//         Process *proc = currentEvent->process; //this is the process the event works on
-//         CURRENT_TIME = currentEvent->timeStamp;
-//         Transition transaction = currentEvent->transition;
-//         int timeInPrevState = CURRENT_TIME - proc->state_ts;
-//         delete currentEvent;
-//         switch(transaction){
-//             case Transition::TRANS_TO_READY:{
-//                 scheduler.add_process(proc);
-//                 break;
-//             }
-//         }
-//     }
-   
-// }
 void simulationLoop(EventQueue* eventQueue, Scheduler* scheduler, int verbose){
     Event* currentEvent;
     Process* CURRENT_RUNNING_PROCESS = nullptr;
@@ -315,28 +289,38 @@ void printOutcome(Scheduler* scheduler){
     double size = scheduler->sizeOfExpQ();
     int lastFinishTime = 0;
     int priority;
-    cout << scheduler->name << endl;
-    for(int i = 0; i < size; i++){
-        for(auto it = scheduler->expiredQueue.begin(); it != scheduler->expiredQueue.end(); ++it){
-            if((*it)->processId == i){
-                if((*it)->finishTime > lastFinishTime){
-                    lastFinishTime = (*it)->finishTime;
-                }
-            }
-            sumCpuTime += (*it)->totalCpuTime;
-            sumIoTime += (*it)->ioTime;
-            sumTurnaroundTime += (*it)->finishTime - (*it)->arrivalTime;
-            sumCpuWaitingTime += (*it)->cpuWaitingTime;
-            if(ifPrio){
-                priority = (*it)->priority+1;
-            }else{
-                priority = (*it)->priority+2;
-            }
-            printf("%04d: %4d %4d %4d %4d %4d | %5d %5d %5d %5d\n",
-                (*it)->processId, (*it)->arrivalTime, (*it)->totalCpuTime, (*it)->cpuBurst, (*it)->ioBurst, (*it)->priority,
-                (*it)->finishTime, ((*it)->finishTime - (*it)->arrivalTime), (*it)->ioTime, (*it)->cpuWaitingTime);
-        }
+    cout << scheduler->getSchedulerName() << endl;
+    // for(int i = 0; i < size; i++){
+    //     for(auto it = scheduler->expiredQueue.begin(); it != scheduler->expiredQueue.end(); it++){
+    //         if((*it)->processId == i){
+    //             if((*it)->finishTime > lastFinishTime){
+    //                 lastFinishTime = (*it)->finishTime;
+    //             }
+    //             sumCpuTime += (*it)->totalCpuTime;
+    //             sumIoTime += (*it)->ioTime;
+    //             sumTurnaroundTime += (*it)->finishTime - (*it)->arrivalTime;
+    //             sumCpuWaitingTime += (*it)->cpuWaitingTime;
+    //             priority = ifPrio ? (*it)->priority+1 : (*it)->priority+2;
+    //             printf("%04d: %4d %4d %4d %4d %4d | %5d %5d %5d %5d\n",
+    //                 (*it)->processId, (*it)->arrivalTime, (*it)->totalCpuTime, (*it)->cpuBurst, (*it)->ioBurst, (*it)->priority,
+    //                 (*it)->finishTime, ((*it)->finishTime - (*it)->arrivalTime), (*it)->ioTime, (*it)->cpuWaitingTime);
+    //         }
+            
+    //     }
         
+    // }
+    for(auto proc : scheduler->getExpiredQueue()){
+        if(proc->finishTime > lastFinishTime){
+            lastFinishTime = proc->finishTime;
+        }
+        sumCpuTime += proc->totalCpuTime;
+        sumIoTime += proc->ioTime;
+        sumTurnaroundTime += proc->finishTime - proc->arrivalTime;
+        sumCpuWaitingTime += proc->cpuWaitingTime;
+        priority = ifPrio ? proc->priority+1 : proc->priority+2;
+        printf("%04d: %4d %4d %4d %4d %4d | %5d %5d %5d %5d\n",
+            proc->processId, proc->arrivalTime, proc->totalCpuTime, proc->cpuBurst, proc->ioBurst, proc->priority,
+            proc->finishTime, (proc->finishTime - proc->arrivalTime), proc->ioTime, proc->cpuWaitingTime);
     }
     double avgTurnaroundTime = sumTurnaroundTime / size;
     double avgCpuWaitingTime = sumCpuWaitingTime / size;

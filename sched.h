@@ -153,16 +153,19 @@ class Scheduler{
         virtual bool unblock_preempt(Process* running, Process* unblocked){ return false; }
         virtual int sizeOfRunQ() { return runQueue.size(); }
         virtual int sizeOfExpQ() { return expiredQueue.size(); }
+        virtual string getSchedulerName() { return name; }
+        virtual const list<Process*>& getExpiredQueue() const { return expiredQueue; }
 };
 
 class FCFS_Scheduler : public Scheduler{
         
     public:
         list<Process*> runQueue, expiredQueue;
-        string name = "FCFS";
+        string name;
         int quantum;
         FCFS_Scheduler(int qtm) : Scheduler(qtm) {
             this->quantum = qtm;
+            this->name = "FCFS";
         }
         ~FCFS_Scheduler() {}
         void add_process(Process* process) override {
@@ -203,5 +206,9 @@ class FCFS_Scheduler : public Scheduler{
         bool isEmpty() {
             return runQueue.empty();
         }
+        string getSchedulerName() override {
+            return name;
+        }
+        const list<Process*>& getExpiredQueue() const override { return expiredQueue; }
 };
 #endif
