@@ -21,6 +21,27 @@ enum class Transition{
     TRANS_TO_PREEMPT,
     TRANS_TO_TERMINATE
 };
+inline string processStateToString(ProcessStates state) {
+    switch(state) {
+        case ProcessStates::CREATED:    return "CREATED";
+        case ProcessStates::READY:      return "READY";
+        case ProcessStates::RUNNING:    return "RUNNING";
+        case ProcessStates::BLOCK:      return "BLOCK";
+        case ProcessStates::TERMINATED: return "TERMINATED";
+        default:                        return "UNKNOWN";
+    }
+}
+
+inline string transitionToString(Transition trans) {
+    switch(trans) {
+        case Transition::TRANS_TO_READY:     return "TRANS_TO_READY";
+        case Transition::TRANS_TO_RUN:       return "TRANS_TO_RUN";
+        case Transition::TRANS_TO_BLOCK:     return "TRANS_TO_BLOCK";
+        case Transition::TRANS_TO_PREEMPT:   return "TRANS_TO_PREEMPT";
+        case Transition::TRANS_TO_TERMINATE: return "TRANS_TO_TERMINATE";
+        default:                           return "UNKNOWN";
+    }
+}
 
 class Process {
     public:
@@ -113,6 +134,59 @@ class EventQueue{
 
         bool isEmpty(){
             return events.empty();
+        }
+};
+
+class Scheduler{
+    protected:
+        queue<Process*> runQueue, expiredQueue;
+    public:
+        string name;
+        int quantum;
+        Scheduler(int qtm) : quantum(qtm) {
+            this->quantum = qtm;
+        }
+        virtual ~Scheduler() {}    // virtual destructor
+        virtual void add_process(Process* process) = 0;
+        virtual void add_expired_process(Process* process) = 0;
+        virtual Process* get_next_process() = 0;
+        virtual bool unblock_preempt(Process* running, Process* unblocked){ return false; }
+        virtual int sizeOfRunQ() { return runQueue.size(); }
+        virtual int sizeOfExpQ() { return expiredQueue.size(); }
+};
+
+class FCFS_Scheduler : public Scheduler{
+    private:
+        queue<Process*> runQueue, expiredQueue;
+    public:
+        string name = "FCFS";
+        int quantum;
+        FCFS_Scheduler(int qtm) : Scheduler(qtm) {
+            this->quantum = qtm;
+        }
+        ~FCFS_Scheduler() {}
+        void add_process(Process* process) override {
+            runQueue.push(process);
+        }
+        void add_expired_process(Process* process) override {
+            expiredQueue.push(process);
+        }
+        Process* get_next_process() override {
+            if(runQueue.empty()){
+                return nullptr;
+            }
+            Process* nextProcess = runQueue.front();
+            runQueue.pop();
+            return nextProcess;
+        }
+        int sizeOfRunQ() override {
+            return runQueue.size();
+        }
+        int sizeOfExpQ() override {
+            return expiredQueue.size();
+        }
+        bool isEmpty() {
+            return runQueue.empty();
         }
 };
 #endif
