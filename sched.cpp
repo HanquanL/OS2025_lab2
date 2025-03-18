@@ -17,13 +17,6 @@ vector<int> randvals;
 int randomRange, randomOffset = 0;
 int maxPriority = 4;
 bool ifPrio = false;
-/*global accounting counters*/
-int totalCpuBusyTime = 0;
-int totalIoBusyTime = 0;
-int simulationFinishTime = 0; // Updated as the simulation ends
-int ioActiveCount = 0;        // Number of processes currently doing I/O
-int ioBusyStart = 0;          // Timestamp when I/O activity started
-/*global accounting counters end*/
 void get_randomNumber();
 int mydrndom(int burst);
 void simulationLoop(EventQueue* eventQueue, Scheduler* scheduler, int verbose);
@@ -317,27 +310,41 @@ void simulationLoop(EventQueue* eventQueue, Scheduler* scheduler, int verbose){
 void printOutcome(Scheduler* scheduler){
     double sumTurnaroundTime = 0;
     double sumCpuWaitingTime = 0;
+    double sumIoTime = 0;
+    double sumCpuTime = 0;
     double size = scheduler->sizeOfExpQ();
+    int lastFinishTime = 0;
+    int priority;
     cout << scheduler->name << endl;
     for(int i = 0; i < size; i++){
-        for(auto it = scheduler.begin(); it != scheduler.end(); ++it){
-            
+        for(auto it = scheduler->expiredQueue.begin(); it != scheduler->expiredQueue.end(); ++it){
+            if((*it)->processId == i){
+                if((*it)->finishTime > lastFinishTime){
+                    lastFinishTime = (*it)->finishTime;
+                }
+            }
+            sumCpuTime += (*it)->totalCpuTime;
+            sumIoTime += (*it)->ioTime;
+            sumTurnaroundTime += (*it)->finishTime - (*it)->arrivalTime;
+            sumCpuWaitingTime += (*it)->cpuWaitingTime;
+            if(ifPrio){
+                priority = (*it)->priority+1;
+            }else{
+                priority = (*it)->priority+2;
+            }
+            printf("%04d: %4d %4d %4d %4d %4d | %5d %5d %5d %5d\n",
+                (*it)->processId, (*it)->arrivalTime, (*it)->totalCpuTime, (*it)->cpuBurst, (*it)->ioBurst, (*it)->priority,
+                (*it)->finishTime, ((*it)->finishTime - (*it)->arrivalTime), (*it)->ioTime, (*it)->cpuWaitingTime);
         }
-        Process* process = outcomeProcesses[i];
-        int turnaroundTime = process->finishTime - process->arrivalTime;
-        sumTurnaroundTime += turnaroundTime;
-        sumCpuWaitingTime += process->cpuWaitingTime;
-        printf("%04d: %4d %4d %4d %4d %4d | %5d %5d %5d %5d\n",
-            process->processId, process->arrivalTime, process->totalCpuTime, process->cpuBurst, process->ioBurst, process->priority,
-            process->finishTime, turnaroundTime, process->ioTime, process->cpuWaitingTime);
+        
     }
-    double avgTurnaroundTime = sumTurnaroundTime / processCount;
-    double avgCpuWaitingTime = sumCpuWaitingTime / processCount;
-    double cpuUtilization = 100.0 * (double) totalCpuBusyTime / simulationFinishTime;
-    double ioUtilization = 100.0 * (double) totalIoBusyTime / simulationFinishTime;
-    double throughput = 100.0 * (double) processCount / simulationFinishTime;
+    double avgTurnaroundTime = sumTurnaroundTime / size;
+    double avgCpuWaitingTime = sumCpuWaitingTime / size;
+    double cpuUtilization = 100.0 * (double) sumCpuTime / lastFinishTime;
+    double ioUtilization = 100.0 * (double) sumIoTime / lastFinishTime;
+    double throughput = 100.0 * (double) size / lastFinishTime;
     printf("SUM: %d %.2lf %.2lf %.2lf %.2lf %.3lf\n",
-        outcomeProcesses[processCount-1]->finishTime, cpuUtilization, ioUtilization, avgTurnaroundTime, avgCpuWaitingTime, throughput);
+        lastFinishTime, cpuUtilization, ioUtilization, avgTurnaroundTime, avgCpuWaitingTime, throughput);
 }
 
 void readInputFile(EventQueue* evenQ, string inputFile){
@@ -349,7 +356,6 @@ void readInputFile(EventQueue* evenQ, string inputFile){
     while(file >> arrivalTime >> totalCpuTime >> cpuBurst >> ioBurst){
         int prioiry = mydrndom(maxPriority) - 2;
         Process* currentProcess = new Process(processId, arrivalTime, totalCpuTime, cpuBurst, ioBurst, prioiry);
-        outcomeProcesses.push_back(currentProcess);
         Event* newEvent = new Event(currentProcess->arrivalTime, currentProcess, Transition::TRANS_TO_READY);
         evenQ->insertEvent(newEvent);
         processId++;

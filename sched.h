@@ -138,9 +138,9 @@ class EventQueue{
 };
 
 class Scheduler{
-    protected:
-        queue<Process*> runQueue, expiredQueue;
+        
     public:
+        list<Process*> runQueue, expiredQueue;
         string name;
         int quantum;
         Scheduler(int qtm) : quantum(qtm) {
@@ -156,9 +156,9 @@ class Scheduler{
 };
 
 class FCFS_Scheduler : public Scheduler{
-    private:
-        queue<Process*> runQueue, expiredQueue;
+        
     public:
+        list<Process*> runQueue, expiredQueue;
         string name = "FCFS";
         int quantum;
         FCFS_Scheduler(int qtm) : Scheduler(qtm) {
@@ -166,18 +166,33 @@ class FCFS_Scheduler : public Scheduler{
         }
         ~FCFS_Scheduler() {}
         void add_process(Process* process) override {
-            runQueue.push(process);
+            runQueue.push_back(process);
         }
         void add_expired_process(Process* process) override {
-            expiredQueue.push(process);
+            expiredQueue.push_back(process);
         }
         Process* get_next_process() override {
-            if(runQueue.empty()){
-                return nullptr;
+            // if(runQueue.empty()){
+            //     return nullptr;
+            // }
+            // Process* nextProcess = runQueue.front();
+            // runQueue.pop();
+            // return nextProcess;
+            Process* result = nullptr;
+            while(!runQueue.empty()){
+                
+                if(runQueue.front()->copy_totalCpuTime == 0){
+                    expiredQueue.push_back(runQueue.front());
+                    runQueue.pop_front();
+                    continue;
+                }
+                
+                result = runQueue.front();
+                runQueue.pop_front();
+                break;
             }
-            Process* nextProcess = runQueue.front();
-            runQueue.pop();
-            return nextProcess;
+            
+            return result;
         }
         int sizeOfRunQ() override {
             return runQueue.size();
