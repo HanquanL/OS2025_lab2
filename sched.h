@@ -334,7 +334,7 @@ class RR_Scheduler : public Scheduler{
         bool isPreempt = false;
         RR_Scheduler(int qtm) : Scheduler(qtm) {
             this->quantum = qtm;
-            this->name = "RR" + to_string(qtm);
+            this->name = "RR " + to_string(qtm);
         }
         ~RR_Scheduler() {}
         void add_process(Process* process) override {
@@ -386,7 +386,7 @@ class PRIO_Scheduler : public Scheduler{
         PRIO_Scheduler(int qtm, int maxprio) : Scheduler(qtm) {
             this->quantum = qtm;
             this->maxprio = maxprio;
-            this->name = "PRIO" + to_string(qtm);
+            this->name = "PRIO " + to_string(qtm);
         }
         ~PRIO_Scheduler() {}
         void add_process(Process* process) override {
@@ -459,7 +459,7 @@ class Pre_PRIO_Scheduler : public Scheduler{
         Pre_PRIO_Scheduler(int qtm, int maxprio) : Scheduler(qtm) {
             this->quantum = qtm;
             this->maxprio = maxprio;
-            this->name = "PREPRIO" + to_string(qtm);
+            this->name = "PREPRIO " + to_string(qtm);
         }
         ~Pre_PRIO_Scheduler() {}
         Process* get_next_process() override{
