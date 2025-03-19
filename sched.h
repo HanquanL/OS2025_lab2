@@ -54,6 +54,8 @@ class Process {
         int copy_totalCpuTime;
         int copy_cpuBurst;
         int finishTime;
+        int turnarTime;
+        int runTime;
         int state_ts;    // the time when the process changed its state
         int cpuWaitingTime;    // the time the process has been waiting in the run queue
         int ioTime;    // the time spent in I/O blocked
@@ -88,15 +90,18 @@ class Event {
         Event() {}
         Event(int ts, Process* p, Transition trans) : timeStamp(ts), process(p), transition(trans) {}
         int get_timestamp() const{ return timeStamp; }
+        void set_timestamp(int ts) { timeStamp = ts; }
         Process* get_process() const{ return process; }
+        void set_process(Process* p) { process = p; }
         Transition get_transition() { return transition; }
+        void set_transition(Transition ts) { transition = ts; }
         ~Event() {}
 };
 
 class EventQueue{
     
     public:
-        list<Event*> events;
+        deque<Event*> events;
         EventQueue() {}
         ~EventQueue(){
             for(auto it = events.begin(); it != events.end(); it++){
