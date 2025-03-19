@@ -33,6 +33,7 @@ deque <Event*> :: iterator  findEvent(deque<Event*> *eventQueue, Process *proces
 void insertSortedQ(deque<Event*> *eventQueue, Event *event);
 Event* getEvent(deque<Event*> *eventQueue);
 int getNextEventTime(deque<Event*> *eventQueue);
+bool compareInterval(Process* i1, Process* i2);
 
 int main(int argc, char *argv[]) {
     string inputFile = argv[argc-2];
@@ -99,17 +100,18 @@ int main(int argc, char *argv[]) {
     // }
     get_randomNumber();
     readInputFile(&eventQueue, inputFile);
+    for(auto event : eventQueue){    //for test purposes
+        cout << event->get_timestamp() << " " << event->get_process()->processId << " " << transitionToString(event->get_transition()) << endl;
+    }
     simulationLoop( scheduler, verbose);
-    // printOutcome(scheduler);
+    printOutcome(scheduler);
     // cout << mydrndom(10) << endl; //for test purposes
     // cout << mydrndom(10) << endl; //for test purposes
     // cout << mydrndom(10) << endl; //for test purposes
     // cout << mydrndom(10) << endl; //for test purposes
     // cout << mydrndom(10) << endl; //for test purposes
     // cout << "Processing events: " << endl;
-    // for(auto event : eventQueue){    //for test purposes
-    //     cout << event->get_timestamp() << " " << event->get_process()->processId << " " << transitionToString(event->get_transition()) << endl;
-    // }
+    
     return 0;
 }
 
@@ -551,15 +553,21 @@ void simulationLoop(Scheduler* scheduler, int verbose){
     ioTime += currentIOTime - (prevIOTime + overlap);
 }
 void printOutcome(Scheduler* scheduler){
+    if(outcomeProcesses.empty()){
+        return;
+    }
+    sort(outcomeProcesses.begin(), outcomeProcesses.end(), compareInterval);
     double sumTurnaroundTime = 0;
     double sumCpuWaitingTime = 0;
     double sumIoTime = 0;
     double sumCpuTime = 0;
     double size = scheduler->sizeOfExpQ();
-    int lastFinishTime = 0;
-    int priority;
+    int lastFinishTime = outcomeProcesses[outcomeProcesses.size()-1]->finishTime;
+    //int priority;
     cout << scheduler->getSchedulerName() << endl;
-    for(auto proc : scheduler->getExpiredQueue()){
+    cout << outcomeProcesses.size() << endl;
+    for(int i = 0; i < outcomeProcesses.size(); i++){
+        Process* proc = outcomeProcesses[i];
         if(proc->finishTime > lastFinishTime){
             lastFinishTime = proc->finishTime;
         }
@@ -567,9 +575,9 @@ void printOutcome(Scheduler* scheduler){
         sumIoTime += proc->ioTime;
         sumTurnaroundTime += proc->finishTime - proc->arrivalTime;
         sumCpuWaitingTime += proc->cpuWaitingTime;
-        priority = ifPrio ? proc->priority+1 : proc->priority+2;
+        //priority = ifPrio ? proc->priority+1 : proc->priority+2;
         printf("%04d: %4d %4d %4d %4d %4d | %5d %5d %5d %5d\n",
-            proc->processId, proc->arrivalTime, proc->totalCpuTime, proc->cpuBurst, proc->ioBurst, priority,
+            proc->processId, proc->arrivalTime, proc->totalCpuTime, proc->cpuBurst, proc->ioBurst, proc->priority,
             proc->finishTime, (proc->finishTime - proc->arrivalTime), proc->ioTime, proc->cpuWaitingTime);
     }
     double avgTurnaroundTime = sumTurnaroundTime / size;
@@ -690,4 +698,9 @@ int getNextEventTime(deque<Event*> *eventQueue){
         return -1;
     Event *evt = eventQueue->front();
     return evt->get_timestamp();
+}
+
+bool compareInterval(Process* i1, Process* i2)
+{
+    return (i1->processId < i2->processId);
 }
