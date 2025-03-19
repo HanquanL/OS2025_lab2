@@ -94,10 +94,9 @@ class Event {
 };
 
 class EventQueue{
-    private:
-        list<Event*> events;
     
     public:
+        list<Event*> events;
         EventQueue() {}
         ~EventQueue(){
             for(auto it = events.begin(); it != events.end(); it++){
@@ -143,6 +142,9 @@ class Scheduler{
         list<Process*> runQueue, expiredQueue;
         string name;
         int quantum;
+        int blockTill = 0;
+        int non_overleap_io = 0;
+        bool isPreempt = false;
         Scheduler(int qtm) : quantum(qtm) {
             this->quantum = qtm;
         }
@@ -163,6 +165,9 @@ class FCFS_Scheduler : public Scheduler{
         list<Process*> runQueue, expiredQueue;
         string name;
         int quantum;
+        int blockTill = 0;
+        int non_overleap_io = 0;
+        bool isPreempt = false;
         FCFS_Scheduler(int qtm) : Scheduler(qtm) {
             this->quantum = qtm;
             this->name = "FCFS";
@@ -211,6 +216,9 @@ class LCFS_Scheduler : public Scheduler{
         list<Process*> runQueue, expiredQueue;
         string name;
         int quantum;
+        int blockTill = 0;
+        int non_overleap_io = 0;
+        bool isPreempt = false;
         LCFS_Scheduler(int qtm) : Scheduler(qtm) {
             this->quantum = qtm;
             this->name = "LCFS";
@@ -258,6 +266,9 @@ class SRTF_Scheduler : public Scheduler{
         list<Process*> runQueue, expiredQueue;
         string name;
         int quantum;
+        int blockTill = 0;
+        int non_overleap_io = 0;
+        bool isPreempt = false;
         SRTF_Scheduler(int qtm) : Scheduler(qtm) {
             this->quantum = qtm;
             this->name = "SRTF";
@@ -313,6 +324,9 @@ class RR_Scheduler : public Scheduler{
         list<Process*> runQueue, expiredQueue;
         string name;
         int quantum;
+        int blockTill = 0;
+        int non_overleap_io = 0;
+        bool isPreempt = false;
         RR_Scheduler(int qtm) : Scheduler(qtm) {
             this->quantum = qtm;
             this->name = "RR" + to_string(qtm);
@@ -361,6 +375,9 @@ class PRIO_Scheduler : public Scheduler{
         string name;
         int quantum;
         int maxprio;
+        int blockTill = 0;
+        int non_overleap_io = 0;
+        bool isPreempt = false;
         PRIO_Scheduler(int qtm, int maxprio) : Scheduler(qtm) {
             this->quantum = qtm;
             this->maxprio = maxprio;
@@ -431,6 +448,9 @@ class Pre_PRIO_Scheduler : public Scheduler{
         string name;
         int quantum;
         int maxprio;
+        int blockTill = 0;
+        int non_overleap_io = 0;
+        bool isPreempt = false;
         Pre_PRIO_Scheduler(int qtm, int maxprio) : Scheduler(qtm) {
             this->quantum = qtm;
             this->maxprio = maxprio;

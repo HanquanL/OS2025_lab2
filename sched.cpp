@@ -22,6 +22,8 @@ int mydrndom(int burst);
 void simulationLoop(EventQueue* eventQueue, Scheduler* scheduler, int verbose);
 void printOutcome(Scheduler* scheduler);
 void readInputFile(EventQueue* evenQ, string inputFile);
+int getActualAT(EventQueue* eventQueue, int pid);
+void removeDuplicate(EventQueue* eventQueue, int pid);
 
 int main(int argc, char *argv[]) {
     string inputFile = argv[argc-2];
@@ -149,6 +151,9 @@ void simulationLoop(EventQueue* eventQueue, Scheduler* scheduler, int verbose){
     Event* currentEvent;
     Process* CURRENT_RUNNING_PROCESS = nullptr;
     int CURRENT_TIME = 0;
+    int breakTime = -1;
+    int breakPrio = 0;
+    list<Process*> tempList;
     while(currentEvent = eventQueue->getEvent()){
         CURRENT_TIME = currentEvent->get_timestamp();
         Process *proc = currentEvent->get_process(); //this is the process the event works on
@@ -156,9 +161,10 @@ void simulationLoop(EventQueue* eventQueue, Scheduler* scheduler, int verbose){
         bool CALL_SCHEDULER = false;
         int timeInPrevState = CURRENT_TIME - proc->state_ts;
         eventQueue->removeEvent();
+        ProcessStates preState;
         switch(transaction){
             case Transition::TRANS_TO_READY:{
-                ProcessStates preState = proc->newState;
+                preState = proc->newState;
                 if(proc->copy_totalCpuTime ==0){
                     if(verbose){
                         cout << CURRENT_TIME << " " << proc->processId << " " << timeInPrevState << ": " << "Done" << endl;
@@ -187,9 +193,55 @@ void simulationLoop(EventQueue* eventQueue, Scheduler* scheduler, int verbose){
                 if(CURRENT_RUNNING_PROCESS != nullptr && proc->processId == CURRENT_RUNNING_PROCESS->processId){
                    CURRENT_RUNNING_PROCESS = nullptr;
                 }
+                if(breakTime == CURRENT_TIME && scheduler->isPreempt && proc->newState == ProcessStates::BLOCK){
+                    if(verbose){
+                        cout << proc->processId << " " << proc->cuurentPriority << " " << breakPrio << endl;
+                }
 
                 proc->newState = ProcessStates::READY;
                 proc->state_ts = CURRENT_TIME;
+
+                if(CURRENT_RUNNING_PROCESS != nullptr && scheduler->isPreempt){
+                    int actualAT = getActualAT(eventQueue, CURRENT_RUNNING_PROCESS->processId);
+
+                    bool highPrio = (proc->priority > CURRENT_RUNNING_PROCESS->cuurentPriority+1);
+                    if(proc->priority > CURRENT_RUNNING_PROCESS->cuurentPriority+1 && actualAT > CURRENT_TIME){
+                        CURRENT_RUNNING_PROCESS->copy_arrivalTime = CURRENT_TIME;
+                        if(actualAT != 0){
+                            CURRENT_RUNNING_PROCESS->copy_cpuBurst += (actualAT - CURRENT_TIME);
+                            CURRENT_RUNNING_PROCESS->copy_totalCpuTime += (actualAT - CURRENT_TIME);
+                        }
+                        if(CURRENT_RUNNING_PROCESS-> copy_cpuBurst > CURRENT_RUNNING_PROCESS -> copy_totalCpuTime){
+                            CURRENT_RUNNING_PROCESS->copy_cpuBurst = CURRENT_RUNNING_PROCESS->copy_totalCpuTime;
+                        }
+                        removeDuplicate(eventQueue, CURRENT_RUNNING_PROCESS->processId);
+                        if(verbose){
+                            cout<< "---> PRIO preemption "<< CURRENT_RUNNING_PROCESS->processId<<" by "<<proc->processId
+                        <<" ? "<< highPrio <<" TS="<<actualAT<<" now="<<CURRENT_TIME<<") --> YES\n";
+                        }
+                        eventQueue->insertEvent(new Event(actualAT, CURRENT_RUNNING_PROCESS, Transition::TRANS_TO_READY));
+                        for(auto it = tempList.begin(); it != tempList.end(); it++){
+                            (*it)->copy_arrivalTime = CURRENT_TIME;
+                        }
+                        tempList.clear();
+                        breakTime = CURRENT_TIME;
+                        CURRENT_RUNNING_PROCESS = nullptr;
+                    }else{
+                        if(verbose){
+                            cout<< "---> PRIO preemption "<< CURRENT_RUNNING_PROCESS->processId<<" by "<<proc->processId
+                        <<" ? "<<highPrio<<" TS="<<actualAT<<" now="<<CURRENT_TIME<<") --> NO\n";
+                        }
+                        if(CURRENT_TIME == actualAT){
+                            proc->copy_arrivalTime = actualAT;
+                            for(auto it = tempList.begin(); it != tempList.end(); it++){
+                                (*it)->copy_arrivalTime = CURRENT_TIME;
+                            }
+                            tempList.clear();
+                        }else{
+                            tempList.push_back(proc);
+                        }
+                    }
+                }
 
                 scheduler->add_process(proc);
                 CALL_SCHEDULER = true;
@@ -197,7 +249,7 @@ void simulationLoop(EventQueue* eventQueue, Scheduler* scheduler, int verbose){
             }
             case Transition::TRANS_TO_RUN:{
                 int actual_cpu_burst;
-                ProcessStates preState = proc->newState;
+                preState = proc->newState;
                 if(proc->copy_cpuBurst ==0){
                     actual_cpu_burst = mydrndom(proc->cpuBurst);
                     proc->copy_cpuBurst = actual_cpu_burst;
@@ -220,7 +272,8 @@ void simulationLoop(EventQueue* eventQueue, Scheduler* scheduler, int verbose){
 
                 if(actual_cpu_burst <= scheduler->quantum){
                     if(verbose){
-                        cout<< CURRENT_TIME << " " << proc->processId << " " << timeInPrevState << ": " <<processStateToString(proc->newState) <<" -> RUNNG cb=" << actual_cpu_burst << " rem=" 
+                        cout<< CURRENT_TIME << " " << proc->processId << " " << timeInPrevState << ": " <<processStateToString(proc->newState) 
+                        <<" -> RUNNG cb=" << actual_cpu_burst << " rem=" 
                         << proc->copy_totalCpuTime <<" prio=" << (proc->cuurentPriority+1)<< "\n";
                     }
 
@@ -236,7 +289,8 @@ void simulationLoop(EventQueue* eventQueue, Scheduler* scheduler, int verbose){
                     CURRENT_TIME += actual_cpu_burst;
                 }else{
                     if(verbose){
-                        cout<< CURRENT_TIME << " " << proc->processId << " " << timeInPrevState << ": " <<processStateToString(proc->newState) <<" -> RUNNG cb=" << scheduler->quantum << " rem=" 
+                        cout<< CURRENT_TIME << " " << proc->processId << " " << timeInPrevState << ": " <<processStateToString(proc->newState) 
+                        <<" -> RUNNG cb=" << scheduler->quantum << " rem=" 
                         << proc->copy_totalCpuTime <<" prio=" << (proc->cuurentPriority+1)<< "\n";
                     }
                     proc->copy_totalCpuTime -= min(proc->copy_cpuBurst, scheduler->quantum);
@@ -261,27 +315,34 @@ void simulationLoop(EventQueue* eventQueue, Scheduler* scheduler, int verbose){
 
             }
             case Transition::TRANS_TO_BLOCK:{
+                //create an event for when process becomes READY again
                 int actual_io_burst = mydrndom(proc->ioBurst);
                 proc->cuurentPriority = proc->priority;
                 if(verbose){
-                    cout << CURRENT_TIME << " " << proc->processId << " " << timeInPrevState << ": " << processStateToString(proc->newState) << " -> BLOCK ib=" 
+                    cout << CURRENT_TIME << " " << proc->processId << " " << timeInPrevState << ": " << processStateToString(proc->newState) 
+                    << " -> BLOCK ib=" 
                     << actual_io_burst << " rem=" << proc->copy_totalCpuTime << "\n";
                 }
                 proc->state_ts = CURRENT_TIME;
                 proc->newState = ProcessStates::BLOCK;
                 proc->ioTime += actual_io_burst;
-                // if(CURRENT_TIME < scheduler-> blockTill && CURRENT_TIME + actual_io_burst >= scheduler->blockTill){
-                //     scheduler->non_overleap_io = CURRENT_TIME + actual_io_burst - scheduler->blockTill;
-                // }else if(CURRENT_TIME + actual_io_burst > scheduler->blockTill){
-                //     scheduler->non_overleap_io += actual_io_burst;
-                // }
-                // scheduler->blockTill = max(scheduler->blockTill, CURRENT_TIME + actual_io_burst);
-
+                if(CURRENT_TIME < scheduler-> blockTill && CURRENT_TIME + actual_io_burst >= scheduler->blockTill){
+                    scheduler->non_overleap_io = CURRENT_TIME + actual_io_burst - scheduler->blockTill;
+                }else if(CURRENT_TIME + actual_io_burst > scheduler->blockTill){
+                    scheduler->non_overleap_io += actual_io_burst;
+                }
+                scheduler->blockTill = max(scheduler->blockTill, CURRENT_TIME + actual_io_burst);
                 eventQueue->insertEvent(new Event(CURRENT_TIME + actual_io_burst, proc, Transition::TRANS_TO_READY));
                 CALL_SCHEDULER = true;
                 if(CURRENT_RUNNING_PROCESS != nullptr && proc->processId == CURRENT_RUNNING_PROCESS->processId){
                     CURRENT_RUNNING_PROCESS = nullptr;
                 }
+                break;
+            }
+            case Transition::TRANS_TO_PREEMPT:{
+                // must come from RUNNING (preemption)
+                // add to runqueue (no event is generated)
+                CALL_SCHEDULER = true;
                 break;
             }
         }
@@ -306,7 +367,7 @@ void simulationLoop(EventQueue* eventQueue, Scheduler* scheduler, int verbose){
             
         }
     }
-        
+}   
 }
 
 void printOutcome(Scheduler* scheduler){
@@ -318,25 +379,6 @@ void printOutcome(Scheduler* scheduler){
     int lastFinishTime = 0;
     int priority;
     cout << scheduler->getSchedulerName() << endl;
-    // for(int i = 0; i < size; i++){
-    //     for(auto it = scheduler->expiredQueue.begin(); it != scheduler->expiredQueue.end(); it++){
-    //         if((*it)->processId == i){
-    //             if((*it)->finishTime > lastFinishTime){
-    //                 lastFinishTime = (*it)->finishTime;
-    //             }
-    //             sumCpuTime += (*it)->totalCpuTime;
-    //             sumIoTime += (*it)->ioTime;
-    //             sumTurnaroundTime += (*it)->finishTime - (*it)->arrivalTime;
-    //             sumCpuWaitingTime += (*it)->cpuWaitingTime;
-    //             priority = ifPrio ? (*it)->priority+1 : (*it)->priority+2;
-    //             printf("%04d: %4d %4d %4d %4d %4d | %5d %5d %5d %5d\n",
-    //                 (*it)->processId, (*it)->arrivalTime, (*it)->totalCpuTime, (*it)->cpuBurst, (*it)->ioBurst, (*it)->priority,
-    //                 (*it)->finishTime, ((*it)->finishTime - (*it)->arrivalTime), (*it)->ioTime, (*it)->cpuWaitingTime);
-    //         }
-            
-    //     }
-        
-    // }
     for(auto proc : scheduler->getExpiredQueue()){
         if(proc->finishTime > lastFinishTime){
             lastFinishTime = proc->finishTime;
@@ -371,5 +413,25 @@ void readInputFile(EventQueue* evenQ, string inputFile){
         Event* newEvent = new Event(currentProcess->arrivalTime, currentProcess, Transition::TRANS_TO_READY);
         evenQ->insertEvent(newEvent);
         processId++;
+    }
+}
+
+int getActualAT(EventQueue* eventQueue, int pid){
+    int actualAT = 0;
+    for(auto it = eventQueue->events.begin(); it != eventQueue->events.end(); it++){
+        if((*it)->get_process()->processId == pid){
+           actualAT = (*it)->get_timestamp();
+        }
+    }
+    return actualAT;
+}
+
+void removeDuplicate(EventQueue* eventQueue, int pid){
+    for(auto it = eventQueue->events.begin(); it != eventQueue->events.end();){
+        if((*it)->get_process()->processId == pid){
+           it = eventQueue->events.erase(it);
+        }else{
+            ++it;
+        }
     }
 }
