@@ -101,6 +101,7 @@ int main(int argc, char *argv[]) {
     // cout << mydrndom(10) << endl; //for test purposes
     // cout << mydrndom(10) << endl; //for test purposes
     readInputFile(&eventQueue, scheduler, inputFile);
+    //cout << maxPriority << endl;
     // for(auto event : eventQueue){    //for test purposes
     //     cout << event->get_timestamp() << " " << event->get_process()->processId << " " << transitionToString(event->get_transition()) << endl;
     // }
@@ -398,7 +399,7 @@ void removeDuplicate(EventQueue* eventQueue, int pid){
 }
 
 void preemptRunningProcess(Process* currentRunningProcess, Process* proc, int currentTime, Scheduler* scheduler){
-    if(scheduler->isPreempt && currentRunningProcess != nullptr && !eventQueue.empty()){
+    if(scheduler->isPreemptivePriority() && currentRunningProcess != nullptr && !eventQueue.empty()){
         deque<Event*> :: iterator it = findEvent(&eventQueue, currentRunningProcess);
         Event *event = *it;
         if(verbose){
