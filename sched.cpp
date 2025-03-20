@@ -402,29 +402,33 @@ void preemptRunningProcess(Process* currentRunningProcess, Process* proc, int cu
     if(scheduler->isPreemptivePriority() && currentRunningProcess != nullptr && !eventQueue.empty()){
         deque<Event*> :: iterator it = findEvent(&eventQueue, currentRunningProcess);
         Event *event = *it;
-        if(verbose){
-            printf("---> PRIO preemption %d by %d ? %d TS=%d now=%d", currentRunningProcess->processId,
-                    proc->processId, proc->cuurentPriority > currentRunningProcess->cuurentPriority,
-                    event->get_timestamp(), currentTime);
-        }
-        if(proc->cuurentPriority > currentRunningProcess->cuurentPriority && (*it)->get_timestamp() >currentTime){
+        if(proc != currentRunningProcess){
             if(verbose){
-                cout << " --> YES" << endl;
-            } 
+                printf("---> PRIO preemption %d by %d ? %d TS=%d now=%d", currentRunningProcess->processId,
+                        proc->processId, proc->cuurentPriority > currentRunningProcess->cuurentPriority,
+                        event->get_timestamp(), currentTime);
+            }
+            if(proc->cuurentPriority > currentRunningProcess->cuurentPriority && (*it)->get_timestamp() >currentTime){
+                if(verbose){
+                    cout << " --> YES" << endl;
+                } 
             eventQueue.erase(it);
-        }
-        int diffTime = event->get_timestamp() - currentTime;
-        currentRunningProcess->copy_cpuBurst += diffTime;
-        currentRunningProcess->copy_totalCpuTime += diffTime;
-        currentRunningProcess->runTime += diffTime;
-        event->set_timestamp(currentTime);
-        event->set_transition(Transition::TRANS_TO_PREEMPT);
-        insertSortedQ(&eventQueue, event);
-    }else{
-        if(verbose){
-            cout << " --> NO" << endl;
+        
+            int diffTime = event->get_timestamp() - currentTime;
+            currentRunningProcess->copy_cpuBurst += diffTime;
+            currentRunningProcess->copy_totalCpuTime += diffTime;
+            currentRunningProcess->runTime += diffTime;
+            event->set_timestamp(currentTime);
+            event->set_transition(Transition::TRANS_TO_PREEMPT);
+            insertSortedQ(&eventQueue, event);
+            }else{
+                if(verbose){
+                    cout << " --> NO" << endl;
+                }
+            }
         }
     }
+    
 }
 
 deque <Event*> :: iterator  findEvent(deque<Event*> *eventQueue, Process *process){
