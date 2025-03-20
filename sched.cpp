@@ -107,8 +107,10 @@ int main(int argc, char *argv[]) {
     // }
     simulationLoop( scheduler, verbose);
     //cout << outcomeProcesses.size() << endl;
+    // cout << maxPriority << endl;
+    // cout << scheduler->getMaxPrio() << endl;
     printOutcome(scheduler);
-    
+
     return 0;
 }
 
@@ -399,6 +401,9 @@ void removeDuplicate(EventQueue* eventQueue, int pid){
 }
 
 void preemptRunningProcess(Process* currentRunningProcess, Process* proc, int currentTime, Scheduler* scheduler){
+    // if(verbose){
+    //     cout << "preemptRunningProcess" << endl;
+    // }
     if(scheduler->isPreemptivePriority() && currentRunningProcess != nullptr && !eventQueue.empty()){
         deque<Event*> :: iterator it = findEvent(&eventQueue, currentRunningProcess);
         Event *event = *it;
@@ -433,13 +438,15 @@ void preemptRunningProcess(Process* currentRunningProcess, Process* proc, int cu
 
 deque <Event*> :: iterator  findEvent(deque<Event*> *eventQueue, Process *process){
     deque<Event*> :: iterator it;
-    for(it = eventQueue->begin(); it != eventQueue->end(); it++){
-        if((*it)->get_process()->processId == process->processId){
+    for(it = eventQueue->begin(); it != eventQueue->end(); ++it){
+        if((**it).process == process){
             return it;
         }
     }
     return it;
 }
+
+
 
 void insertSortedQ(deque<Event*> *eventQueue, Event *event){
     if(eventQueue->empty()){
