@@ -16,16 +16,16 @@ ifstream randomNumbers;
 vector<int> randvals;
 int randomRange, randomOffset = 0;
 int ioTime = 0;
-int maxPriority = 4;
 bool ifPrio = false;
 bool verbose = false;
 deque<Event*> eventQueue;
 vector<Process*> outcomeProcesses;
+Scheduler* scheduler;
 void get_randomNumber();
 int mydrndom(int burst);
 void simulationLoop(Scheduler* scheduler, int verbose);
 void printOutcome(Scheduler* scheduler);
-void readInputFile(deque<Event*> *eventQueue, string inputFile);
+void readInputFile(deque<Event*> *eventQueue, Scheduler* scheduler, string inputFile);
 int getActualAT(EventQueue* eventQueue, int pid);
 void removeDuplicate(EventQueue* eventQueue, int pid);
 void preemptRunningProcess(Process* currentRunningProcess, Process* proc, int currentTime, Scheduler* scheduler);
@@ -34,17 +34,18 @@ void insertSortedQ(deque<Event*> *eventQueue, Event *event);
 Event* getEvent(deque<Event*> *eventQueue);
 int getNextEventTime(deque<Event*> *eventQueue);
 bool compareInterval(Process* i1, Process* i2);
+//void parseArgs(int argc, char *argv[]);
 
 int main(int argc, char *argv[]) {
+    //parseArgs(argc, argv);
     string inputFile = argv[argc-2];
     string rfile = argv[argc-1];
+    randomNumbers.open(rfile);
     string lineOfProcess;
     string schedulerType;
+    int maxPriority = 4;
     int c;
     //EventQueue* eventQueue = new EventQueue();
-    Scheduler* scheduler;
-    randomNumbers.open(rfile);
-  
     while((c = getopt(argc, argv, "v::s:")) != -1){
         switch(c){
             case 'v':
@@ -78,6 +79,8 @@ int main(int argc, char *argv[]) {
             if(schedulerType.size() > 3){
                 maxPriority = atoi(schedulerType.substr(3).c_str());
             }
+            // cout << maxPriority << endl;
+            // cout << schedulerType.substr(3).c_str() << endl;
             scheduler = new PRIO_Scheduler(atoi(schedulerType.substr(1).c_str()), maxPriority);
             ifPrio = true;
             break;
@@ -97,7 +100,7 @@ int main(int argc, char *argv[]) {
     // cout << mydrndom(10) << endl; //for test purposes
     // cout << mydrndom(10) << endl; //for test purposes
     // cout << mydrndom(10) << endl; //for test purposes
-    readInputFile(&eventQueue, inputFile);
+    readInputFile(&eventQueue, scheduler, inputFile);
     // for(auto event : eventQueue){    //for test purposes
     //     cout << event->get_timestamp() << " " << event->get_process()->processId << " " << transitionToString(event->get_transition()) << endl;
     // }
@@ -358,7 +361,7 @@ void printOutcome(Scheduler* scheduler){
         lastFinishTime, cpuUtilization, ioUtilization, avgTurnaroundTime, avgCpuWaitingTime, throughput);
 }
 
-void readInputFile(deque<Event*> *eventQueue, string inputFile){
+void readInputFile(deque<Event*> *eventQueue, Scheduler* scheduler, string inputFile){
     fstream file;
     file.open(inputFile);
     string lineOfProcess;
@@ -366,7 +369,7 @@ void readInputFile(deque<Event*> *eventQueue, string inputFile){
     int arrivalTime, totalCpuTime, cpuBurst, ioBurst;
     while(file >> arrivalTime >> totalCpuTime >> cpuBurst >> ioBurst){
         //int prioiry = mydrndom(maxPriority) - 2;
-        int prioiry = mydrndom(maxPriority);
+        int prioiry = mydrndom(scheduler->getMaxPrio());
         Process* currentProcess = new Process(processId, arrivalTime, totalCpuTime, cpuBurst, ioBurst, prioiry);
         Event* newEvent = new Event(currentProcess->arrivalTime, currentProcess, Transition::TRANS_TO_READY);
         insertSortedQ(eventQueue, newEvent);
@@ -473,3 +476,48 @@ bool compareInterval(Process* i1, Process* i2)
 {
     return (i1->processId < i2->processId);
 }
+
+// void parseArgs(int argc, char *argv[]){
+//     int c;
+//     int maxPriority = 4;
+//     int quantum;
+//     while((c = getopt(argc, argv, "v::s:")) != -1){
+//         switch(c){
+//             case 'v':
+//                 verbose = true;
+//                 break;
+//             case 's':
+//                 switch(optarg[0]){
+//                     case 'F':{
+//                         scheduler = new FCFS_Scheduler(10000);
+//                         break;
+//                     }
+//                     case 'L':{
+//                         scheduler = new LCFS_Scheduler(10000);
+//                         break;
+//                     }
+//                     case 'S':{
+//                         scheduler = new SRTF_Scheduler(10000);
+//                         break;
+//                     }
+//                     case 'R':{
+//                         quantum = atoi(optarg+1);
+//                         scheduler = new RR_Scheduler(quantum);
+//                         break;
+//                     }
+//                     case 'P':{
+//                         sscanf(optarg+1, "%d:%d", &quantum, &maxPriority);
+//                         scheduler = new PRIO_Scheduler(quantum, maxPriority);
+//                         ifPrio = true;
+//                         break;
+//                     }
+//                     case 'E':{
+//                         sscanf(optarg+1, "%d:%d", &quantum, &maxPriority);
+//                         scheduler = new Pre_PRIO_Scheduler(quantum, maxPriority);
+//                         ifPrio = true;
+//                         break;
+//                     }
+//                 }
+//         }
+//     }
+// }

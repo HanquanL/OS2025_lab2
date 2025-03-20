@@ -3,6 +3,9 @@
 #include <iostream>
 #include <queue>
 #include <list>
+#include <deque>
+#include <vector>
+
 
 using namespace std;
 
@@ -77,7 +80,7 @@ class Process {
             cpuWaitingTime = 0;
             newState = ProcessStates::CREATED;
             priority = PRIO;
-            cuurentPriority = PRIO;
+            cuurentPriority = PRIO-1;
         }
 };
 
@@ -145,8 +148,11 @@ class Scheduler{
         
     public:
         list<Process*> runQueue, expiredQueue;
+        vector<deque<Process*>> activeQueues, expiredQueues;
+        vector<deque<Process*>> *activeQueuePtr, *expiredQueuePtr;
         string name;
         int quantum;
+        int maxprio;
         int blockTill = 0;
         int non_overleap_io = 0;
         bool isPreempt = false;
@@ -154,14 +160,15 @@ class Scheduler{
             this->quantum = qtm;
         }
         virtual ~Scheduler() {}    // virtual destructor
-        virtual void add_process(Process* process) = 0;
-        virtual void add_expired_process(Process* process) = 0;
-        virtual Process* get_next_process() = 0;
+        virtual void add_process(Process* process){};
+        virtual void add_expired_process(Process* process){};
+        virtual Process* get_next_process(){ return nullptr; };
         virtual bool unblock_preempt(Process* running, Process* unblocked){ return false; }
         virtual int sizeOfRunQ() { return runQueue.size(); }
         virtual int sizeOfExpQ() { return expiredQueue.size(); }
         virtual string getSchedulerName() { return name; }
         virtual const list<Process*>& getExpiredQueue() const { return expiredQueue; }
+        virtual int getMaxPrio() { return 4; }
 };
 
 class FCFS_Scheduler : public Scheduler{
@@ -376,60 +383,84 @@ class RR_Scheduler : public Scheduler{
 
 class PRIO_Scheduler : public Scheduler{
     public:
-        list<Process*> runQueue, expiredQueue;
+        //list<Process*> runQueue, expiredQueue;
+        vector<deque<Process*>> activeQueues, expiredQueues;
+        vector<deque<Process*>> *activeQueuePtr, *expiredQueuePtr;
         string name;
         int quantum;
         int maxprio;
         int blockTill = 0;
         int non_overleap_io = 0;
         bool isPreempt = false;
+        int expiredProcessNumber = 0;
         PRIO_Scheduler(int qtm, int maxprio) : Scheduler(qtm) {
             this->quantum = qtm;
             this->maxprio = maxprio;
             this->name = "PRIO " + to_string(qtm);
+            for(int i = 0; i < maxprio; i++){
+                deque<Process*> activeQ, expiredQ;
+                activeQueues.push_back(activeQ);
+                expiredQueues.push_back(expiredQ);
+            }
+            activeQueuePtr = &activeQueues;
+            expiredQueuePtr = &expiredQueues;
+            this->expiredProcessNumber = 0;
         }
         ~PRIO_Scheduler() {}
         void add_process(Process* process) override {
+            // if(process->cuurentPriority == -1){
+            //     process->cuurentPriority = process->priority;
+            //     add_expired_process(process);
+            // }
+            // runQueue.push_back(process);
             if(process->cuurentPriority == -1){
-                process->cuurentPriority = process->priority;
-                add_expired_process(process);
+                process->cuurentPriority = process->priority-1;
+                expiredQueuePtr->at(process->cuurentPriority).push_back(process);
+                expiredProcessNumber++;
+            }else{
+                activeQueuePtr->at(process->cuurentPriority).push_back(process);
             }
-            runQueue.push_back(process);
         }
         void add_expired_process(Process* process) override {
             expiredQueue.push_back(process);
         }
         Process* get_next_process() override{
-            if(runQueue.empty()){
-                list<Process*> tempList = runQueue;
-                runQueue = expiredQueue;
-                expiredQueue = tempList;
-            }
+            // if(runQueue.empty()){
+            //     list<Process*> tempList = runQueue;
+            //     runQueue = expiredQueue;
+            //     expiredQueue = tempList;
+            // }
 
-            // remove expired processes from runQueue
-            for(auto it=runQueue.begin(); it != runQueue.end();){
-                if((*it)->copy_totalCpuTime == 0){
-                    expiredQueue.push_back(*it);
-                    it = runQueue.erase(it);
-                }else{
-                    ++it;
-                }
-            }
+            // // remove expired processes from runQueue
+            // for(auto it=runQueue.begin(); it != runQueue.end();){
+            //     if((*it)->copy_totalCpuTime == 0){
+            //         expiredQueue.push_back(*it);
+            //         it = runQueue.erase(it);
+            //     }else{
+            //         ++it;
+            //     }
+            // }
 
-            if(runQueue.empty()){
-                return nullptr;
-            }
+            // if(runQueue.empty()){
+            //     return nullptr;
+            // }
 
-            int max = runQueue.front()->cuurentPriority;
-            Process* process = runQueue.front();
-            for(auto it = runQueue.begin(); it != runQueue.end(); it++){
-                if((*it)->cuurentPriority > max){
-                    process = *it;
-                    max = (*it)->cuurentPriority;
+            // int max = runQueue.front()->cuurentPriority;
+            // Process* process = runQueue.front();
+            // for(auto it = runQueue.begin(); it != runQueue.end(); it++){
+            //     if((*it)->cuurentPriority > max){
+            //         process = *it;
+            //         max = (*it)->cuurentPriority;
                     
-                }
+            //     }
+            // }
+            // runQueue.remove(process);
+            // return process;
+            Process *process = findProcess();
+            if(expiredProcessNumber > 0 && process == nullptr){
+                swapQueus();
+                process = findProcess();
             }
-            runQueue.remove(process);
             return process;
         }
         int sizeOfRunQ() override {
@@ -444,7 +475,30 @@ class PRIO_Scheduler : public Scheduler{
         string getSchedulerName() override {
             return name;
         }
-        const list<Process*>& getExpiredQueue() const override { return expiredQueue; }
+        //const list<Process*>& getExpiredQueue() const override { return expiredQueue; }
+        void swapQueus(){
+            vector<deque<Process*>> *temp = activeQueuePtr;
+            activeQueuePtr = expiredQueuePtr;
+            expiredQueuePtr = temp;
+            expiredProcessNumber = 0;
+        }
+
+        Process* findProcess(){
+            Process* process = nullptr;
+            deque<Process*> tempQ;
+            for(int i = activeQueuePtr->size() - 1; i >= 0; i--){
+                if(!activeQueuePtr->at(i).empty()){
+                    process = activeQueuePtr->at(i).front();
+                    activeQueuePtr->at(i).pop_front();
+                    break;
+                }
+            }
+            return process;
+        }
+
+        bool isPriority(){
+            return true;
+        }
 };
 
 class Pre_PRIO_Scheduler : public Scheduler{
