@@ -3,6 +3,9 @@
 #include <iostream>
 #include <queue>
 #include <list>
+#include <deque>
+#include <vector>
+
 
 using namespace std;
 
@@ -54,6 +57,8 @@ class Process {
         int copy_totalCpuTime;
         int copy_cpuBurst;
         int finishTime;
+        int turnarTime;
+        int runTime;
         int state_ts;    // the time when the process changed its state
         int cpuWaitingTime;    // the time the process has been waiting in the run queue
         int ioTime;    // the time spent in I/O blocked
@@ -75,29 +80,30 @@ class Process {
             cpuWaitingTime = 0;
             newState = ProcessStates::CREATED;
             priority = PRIO;
-            cuurentPriority = PRIO;
+            cuurentPriority = PRIO-1;
         }
 };
 
-class Event {
-    private:
+class Event { 
+    public:
         int timeStamp;
         Process* process;
         Transition transition;
-    public:
         Event() {}
         Event(int ts, Process* p, Transition trans) : timeStamp(ts), process(p), transition(trans) {}
         int get_timestamp() const{ return timeStamp; }
+        void set_timestamp(int ts) { timeStamp = ts; }
         Process* get_process() const{ return process; }
+        void set_process(Process* p) { process = p; }
         Transition get_transition() { return transition; }
+        void set_transition(Transition ts) { transition = ts; }
         ~Event() {}
 };
 
 class EventQueue{
-    private:
-        list<Event*> events;
     
     public:
+        deque<Event*> events;
         EventQueue() {}
         ~EventQueue(){
             for(auto it = events.begin(); it != events.end(); it++){
@@ -141,20 +147,32 @@ class Scheduler{
         
     public:
         list<Process*> runQueue, expiredQueue;
+        vector<deque<Process*>> activeQueues, expiredQueues;
+        vector<deque<Process*>> *activeQueuePtr, *expiredQueuePtr;
         string name;
         int quantum;
+        int maxprio;
+        int blockTill = 0;
+        int non_overleap_io = 0;
+        bool isPreempt = false;
         Scheduler(int qtm) : quantum(qtm) {
             this->quantum = qtm;
         }
+        Scheduler(int qtm, int maxprio) : quantum(qtm), maxprio(maxprio) {
+            this->quantum = qtm;
+            this->maxprio = maxprio;
+        }
         virtual ~Scheduler() {}    // virtual destructor
-        virtual void add_process(Process* process) = 0;
-        virtual void add_expired_process(Process* process) = 0;
-        virtual Process* get_next_process() = 0;
-        virtual bool unblock_preempt(Process* running, Process* unblocked){ return false; }
-        virtual int sizeOfRunQ() { return runQueue.size(); }
-        virtual int sizeOfExpQ() { return expiredQueue.size(); }
-        virtual string getSchedulerName() { return name; }
-        virtual const list<Process*>& getExpiredQueue() const { return expiredQueue; }
+        virtual void add_process(Process* process){};
+        virtual void add_expired_process(Process* process){};
+        virtual Process* get_next_process(){ return nullptr; };
+        virtual bool unblock_preempt(Process* running, Process* unblocked){ return false; };
+        virtual int sizeOfRunQ() { return runQueue.size(); };
+        virtual int sizeOfExpQ() { return expiredQueue.size(); };
+        virtual string getSchedulerName() { return name; };
+        virtual const list<Process*>& getExpiredQueue() const { return expiredQueue; };
+        virtual int getMaxPrio() { return 4; };
+        virtual bool isPreemptivePriority() { return isPreempt; };
 };
 
 class FCFS_Scheduler : public Scheduler{
@@ -163,6 +181,9 @@ class FCFS_Scheduler : public Scheduler{
         list<Process*> runQueue, expiredQueue;
         string name;
         int quantum;
+        int blockTill = 0;
+        int non_overleap_io = 0;
+        bool isPreempt = false;
         FCFS_Scheduler(int qtm) : Scheduler(qtm) {
             this->quantum = qtm;
             this->name = "FCFS";
@@ -211,6 +232,9 @@ class LCFS_Scheduler : public Scheduler{
         list<Process*> runQueue, expiredQueue;
         string name;
         int quantum;
+        int blockTill = 0;
+        int non_overleap_io = 0;
+        bool isPreempt = false;
         LCFS_Scheduler(int qtm) : Scheduler(qtm) {
             this->quantum = qtm;
             this->name = "LCFS";
@@ -258,6 +282,9 @@ class SRTF_Scheduler : public Scheduler{
         list<Process*> runQueue, expiredQueue;
         string name;
         int quantum;
+        int blockTill = 0;
+        int non_overleap_io = 0;
+        bool isPreempt = false;
         SRTF_Scheduler(int qtm) : Scheduler(qtm) {
             this->quantum = qtm;
             this->name = "SRTF";
@@ -313,9 +340,12 @@ class RR_Scheduler : public Scheduler{
         list<Process*> runQueue, expiredQueue;
         string name;
         int quantum;
+        int blockTill = 0;
+        int non_overleap_io = 0;
+        bool isPreempt = false;
         RR_Scheduler(int qtm) : Scheduler(qtm) {
             this->quantum = qtm;
-            this->name = "RR" + to_string(qtm);
+            this->name = "RR " + to_string(qtm);
         }
         ~RR_Scheduler() {}
         void add_process(Process* process) override {
@@ -357,57 +387,53 @@ class RR_Scheduler : public Scheduler{
 
 class PRIO_Scheduler : public Scheduler{
     public:
-        list<Process*> runQueue, expiredQueue;
+        //list<Process*> runQueue, expiredQueue;
+        vector<deque<Process*>> activeQueues, expiredQueues;
+        vector<deque<Process*>> *activeQueuePtr, *expiredQueuePtr;
         string name;
         int quantum;
         int maxprio;
-        PRIO_Scheduler(int qtm, int maxprio) : Scheduler(qtm) {
+        int blockTill = 0;
+        int non_overleap_io = 0;
+        bool isPreempt = false;
+        int expiredProcessNumber = 0;
+        PRIO_Scheduler(int qtm, int maxprio) : Scheduler(qtm, maxprio) {
             this->quantum = qtm;
             this->maxprio = maxprio;
-            this->name = "PRIO" + to_string(qtm);
+            this->name = "PRIO " + to_string(qtm);
+            for(int i = 0; i < maxprio; i++){
+                deque<Process*> activeQ, expiredQ;
+                activeQueues.push_back(activeQ);
+                expiredQueues.push_back(expiredQ);
+            }
+            activeQueuePtr = &activeQueues;
+            expiredQueuePtr = &expiredQueues;
+            this->expiredProcessNumber = 0;
         }
         ~PRIO_Scheduler() {}
         void add_process(Process* process) override {
+            // if(process->cuurentPriority == -1){
+            //     process->cuurentPriority = process->priority;
+            //     add_expired_process(process);
+            // }
+            // runQueue.push_back(process);
             if(process->cuurentPriority == -1){
-                process->cuurentPriority = process->priority;
-                add_expired_process(process);
+                process->cuurentPriority = process->priority-1;
+                expiredQueuePtr->at(process->cuurentPriority).push_back(process);
+                expiredProcessNumber++;
+            }else{
+                activeQueuePtr->at(process->cuurentPriority).push_back(process);
             }
-            runQueue.push_back(process);
         }
         void add_expired_process(Process* process) override {
             expiredQueue.push_back(process);
         }
         Process* get_next_process() override{
-            if(runQueue.empty()){
-                list<Process*> tempList = runQueue;
-                runQueue = expiredQueue;
-                expiredQueue = tempList;
+            Process *process = findProcess();
+            if(expiredProcessNumber > 0 && process == nullptr){
+                swapQueus();
+                return findProcess();
             }
-
-            // remove expired processes from runQueue
-            for(auto it=runQueue.begin(); it != runQueue.end();){
-                if((*it)->copy_totalCpuTime == 0){
-                    expiredQueue.push_back(*it);
-                    it = runQueue.erase(it);
-                }else{
-                    ++it;
-                }
-            }
-
-            if(runQueue.empty()){
-                return nullptr;
-            }
-
-            int max = runQueue.front()->cuurentPriority;
-            Process* process = runQueue.front();
-            for(auto it = runQueue.begin(); it != runQueue.end(); it++){
-                if((*it)->cuurentPriority > max){
-                    process = *it;
-                    max = (*it)->cuurentPriority;
-                    
-                }
-            }
-            runQueue.remove(process);
             return process;
         }
         int sizeOfRunQ() override {
@@ -422,58 +448,86 @@ class PRIO_Scheduler : public Scheduler{
         string getSchedulerName() override {
             return name;
         }
-        const list<Process*>& getExpiredQueue() const override { return expiredQueue; }
+        //const list<Process*>& getExpiredQueue() const override { return expiredQueue; }
+        void swapQueus(){
+            vector<deque<Process*>> *temp = activeQueuePtr;
+            activeQueuePtr = expiredQueuePtr;
+            expiredQueuePtr = temp;
+            expiredProcessNumber = 0;
+        }
+
+        Process* findProcess(){
+            Process* process = nullptr;
+            deque<Process*> tempQ;
+            for(int i = activeQueuePtr->size() - 1; i >= 0; i--){
+                if(!activeQueuePtr->at(i).empty()){
+                    process = activeQueuePtr->at(i).front();
+                    activeQueuePtr->at(i).pop_front();
+                    return process;
+                }
+            }
+            return process;
+        }
+
+        bool isPriority(){
+            return true;
+        }
+        int getMaxPrio() override {
+            return maxprio;
+        }
 };
 
 class Pre_PRIO_Scheduler : public Scheduler{
     public:
-        list<Process*> runQueue, expiredQueue;
+        //list<Process*> runQueue, expiredQueue;
+        vector<deque<Process*>> activeQueues, expiredQueues;
+        vector<deque<Process*>> *activeQueuePtr, *expiredQueuePtr;
         string name;
         int quantum;
         int maxprio;
-        Pre_PRIO_Scheduler(int qtm, int maxprio) : Scheduler(qtm) {
+        int blockTill = 0;
+        int non_overleap_io = 0;
+        bool isPreempt = false;
+        int expiredProcessNumber;
+        Pre_PRIO_Scheduler(int qtm, int maxprio) : Scheduler(qtm, maxprio) {
             this->quantum = qtm;
             this->maxprio = maxprio;
-            this->name = "PREPRIO" + to_string(qtm);
+            this->name = "PREPRIO " + to_string(qtm);
+            this->isPreempt = true;
+            for(int i = 0; i < maxprio; i++){
+                deque<Process*> activeQ, expiredQ;
+                activeQueues.push_back(activeQ);
+                expiredQueues.push_back(expiredQ);
+            }
+            activeQueuePtr = &activeQueues;
+            expiredQueuePtr = &expiredQueues;
+            this->expiredProcessNumber = 0;
         }
+
         ~Pre_PRIO_Scheduler() {}
+
         Process* get_next_process() override{
-            if(runQueue.empty()){
-                list<Process*> tempList = runQueue;
-                runQueue = expiredQueue;
-                expiredQueue = tempList;
+            Process *process = findProcess();
+            if(expiredProcessNumber > 0 && process == nullptr){
+                swapQueus();
+                return findProcess();
             }
-            for(auto it=runQueue.begin(); it != runQueue.end();){
-                if((*it)->copy_totalCpuTime == 0){
-                    expiredQueue.push_back(*it);
-                    it = runQueue.erase(it);
-                }else{
-                    ++it;
-                }
-            }
-
-            if(runQueue.empty()){
-                return nullptr;
-            }
-
-            int max = runQueue.front()->cuurentPriority;
-            Process* process = runQueue.front();
-            for(auto it = runQueue.begin(); it != runQueue.end(); it++){
-                if((*it)->cuurentPriority > max){
-                    process = *it;
-                    max = (*it)->cuurentPriority;
-                    
-                }
-            }
-            runQueue.remove(process);
             return process;
         }
+
         void add_process(Process* process){
+            // if(process->cuurentPriority == -1){
+            //     process->cuurentPriority = process->priority;
+            //     add_expired_process(process);
+            // }
+            // runQueue.push_back(process);
             if(process->cuurentPriority == -1){
-                process->cuurentPriority = process->priority;
-                add_expired_process(process);
+                process->cuurentPriority = process->priority-1;
+                expiredQueuePtr->at(process->cuurentPriority).push_back(process);
+                expiredProcessNumber++;
+            }else{
+                activeQueuePtr->at(process->cuurentPriority).push_back(process);
             }
-            runQueue.push_back(process);
         }
         void add_expired_process(Process* process) override {
             expiredQueue.push_back(process);
@@ -491,5 +545,35 @@ class Pre_PRIO_Scheduler : public Scheduler{
             return name;
         }
         const list<Process*>& getExpiredQueue() const override { return expiredQueue; }
+
+        void swapQueus(){
+            vector<deque<Process*>> *temp = activeQueuePtr;
+            activeQueuePtr = expiredQueuePtr;
+            expiredQueuePtr = temp;
+            expiredProcessNumber = 0;
+        }
+
+        Process* findProcess(){
+            Process* process = nullptr;
+            deque<Process*> tempQ;
+            for(int i = activeQueuePtr->size() - 1; i >= 0; i--){
+                if(!activeQueuePtr->at(i).empty()){
+                    process = activeQueuePtr->at(i).front();
+                    activeQueuePtr->at(i).pop_front();
+                    return process;
+                }
+            }
+            return process;
+        }
+
+        bool isPriority(){
+            return true;
+        }
+        bool isPreemptivePriority(){
+            return isPreempt;
+        }
+        int getMaxPrio() override {
+            return maxprio;
+        }
 };
 #endif
